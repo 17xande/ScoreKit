@@ -10,6 +10,7 @@ struct LocalNote {
     var groupID: NoteID
     var stemEnd: CGPoint?
     var isRest: Bool
+    var isGrace = false
 }
 
 /// Items for one staff in staff-local coordinates (top line at y = 0), with how far they
@@ -79,6 +80,7 @@ struct SystemResult {
     var groups: [NoteID: [NoteID]]
     var beams: [BeamID: [NoteID]]
     var sharedHeads: [NoteID: NoteID]
+    var noteTimes: [NoteID: NoteTime] = [:]
 }
 
 /// The placed groups of one staff-measure, with the beams and tuplets that span them.
@@ -116,6 +118,7 @@ extension Engraving {
         var laidMeasures: [LaidMeasure] = []
         var placed: [PlacedGroup] = []
         var slotMeasures: [StaffMeasurePlacement] = []
+        var noteTimes: [NoteID: NoteTime] = [:]
         var x0 = staffLeft
 
         for (k, mi) in range.enumerated() {
@@ -204,6 +207,7 @@ extension Engraving {
                         x = mid - Glyph.rest(g.value).metrics.advance / 2
                     }
                     pidx[gi] = placed.count
+                    for hn in g.notes { noteTimes[hn.note.id] = NoteTime(measureIndex: mi, onset: g.onset) }
                     placed.append(PlacedGroup(group: g, x: x, slotIndex: si, stem: stemGeometry(g, x: x)))
                 }
                 slotMeasures.append(StaffMeasurePlacement(slot: si, pidx: pidx, beams: sm.beams, tuplets: sm.tuplets))
@@ -257,7 +261,7 @@ extension Engraving {
             for n in bufs[si].notes {
                 notes[n.id] = LaidNote(id: n.id, systemIndex: systemIndex, staffIndex: si,
                                        headBox: n.headBox.offsetBy(dx: 0, dy: t), groupID: n.groupID,
-                                       stemEnd: n.stemEnd?.offset(dy: t), isRest: n.isRest)
+                                       stemEnd: n.stemEnd?.offset(dy: t), isRest: n.isRest, isGrace: n.isGrace)
             }
             groups.merge(bufs[si].groups) { a, _ in a }
             beamMap.merge(bufs[si].beams) { a, _ in a }
@@ -307,7 +311,8 @@ extension Engraving {
         let staves = slots.enumerated().map { LaidStaff(partIndex: $1.part, staffInPart: $1.staff, top: tops[$0]) }
         let system = LaidSystem(frame: frame, staves: staves, measureRange: range, items: items,
                                 columns: laidColumns, measures: laidMeasures)
-        return SystemResult(system: system, notes: notes, groups: groups, beams: beamMap, sharedHeads: sharedMap)
+        return SystemResult(system: system, notes: notes, groups: groups, beams: beamMap, sharedHeads: sharedMap,
+                            noteTimes: noteTimes)
     }
 
     // MARK: Barlines
@@ -459,7 +464,7 @@ extension Engraving {
             else { buf.glyph(head, at: origin, size: size, id: n.note.id) }
             let box = hm.box(at: origin, size: size)
             buf.notes.append(LocalNote(id: n.note.id, headBox: box, groupID: lead,
-                                       stemEnd: pg.stem.map { CGPoint(x: $0.x, y: $0.yEnd) }, isRest: false))
+                                       stemEnd: pg.stem.map { CGPoint(x: $0.x, y: $0.yEnd) }, isRest: false, isGrace: g.grace))
             for p in StaffGeometry.ledgerPositions(n.p) {
                 let lo = hx - EngravingDefaults.legerLineExtension * scale
                 let hi = hx + g.headWidth + EngravingDefaults.legerLineExtension * scale

@@ -69,6 +69,7 @@ struct Engraving {
         var groups: [NoteID: [NoteID]] = [:]
         var beams: [BeamID: [NoteID]] = [:]
         var shared: [NoteID: NoteID] = [:]
+        var times: [NoteID: NoteTime] = [:]
         var y = 0.0
         var maxWidth = 0.0
         for (i, r) in ranges.enumerated() {
@@ -80,6 +81,7 @@ struct Engraving {
             groups.merge(res.groups) { a, _ in a }
             beams.merge(res.beams) { a, _ in a }
             shared.merge(res.sharedHeads) { a, _ in a }
+            times.merge(res.noteTimes) { a, _ in a }
             y = sys.frame.maxY + options.systemDistance
             maxWidth = max(maxWidth, sys.frame.width)
         }
@@ -94,6 +96,8 @@ struct Engraving {
         var result = ScoreLayout(size: CGSize(width: max(target ?? 0, maxWidth), height: height), systems: systems,
                                  notes: notes, noteBoxes: boxes, groups: groups, beams: beams, sharedHeads: shared)
         result.tiedFrom = tiedFrom
+        result.noteTimes = times
+        result.buildIndexes()
         return result
     }
 

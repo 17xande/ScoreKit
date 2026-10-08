@@ -187,6 +187,15 @@ public struct LaidNote: Sendable, Hashable {
     /// Where the group's stem ends (the far end from the heads), nil without a stem.
     public var stemEnd: CGPoint?
     public var isRest: Bool
+    /// A grace note: it has no timeline entry of its own (see `HitResult`).
+    public var isGrace = false
+}
+
+/// A note's place in the score: 0-based measure and quarters into it.
+public struct NoteTime: Sendable, Hashable {
+    public var measureIndex: Int
+    public var onset: Rational
+    public init(measureIndex: Int, onset: Rational) { self.measureIndex = measureIndex; self.onset = onset }
 }
 
 /// The result of laying a score out: pure geometry in staff spaces.
@@ -206,25 +215,64 @@ public struct ScoreLayout: Sendable {
     /// Tied notes that were both drawn: end note to start note (a tie split across systems is
     /// still one entry). Half ties (let-ring, abandoned) have none.
     public var tiedFrom: [NoteID: NoteID] = [:]
+    /// Where each drawn note (rests included) sits in time: its measure and onset.
+    public var noteTimes: [NoteID: NoteTime] = [:]
+
+    /// Where a measure was laid out: the system and the measure's index in `LaidSystem.measures`.
+    public struct MeasureLocation: Sendable, Hashable {
+        public var systemIndex: Int
+        public var slot: Int
+    }
+
+    /// Measure index to its place, built once by the engraver (queries are O(1)).
+    public var measureLocations: [Int: MeasureLocation] = [:]
+    /// Every drawn note of each system, ascending id (hit testing scans only one system).
+    public var systemNotes: [[LaidNote]] = []
+
+    /// A horizontal position on a system.
+    public struct LaidX: Sendable, Hashable {
+        public var systemIndex: Int
+        public var x: Double
+    }
+
+    /// Fills `measureLocations` and `systemNotes` from `systems` and `notes`.
+    mutating func buildIndexes() {
+        measureLocations = [:]
+        for (si, sys) in systems.enumerated() {
+            for (slot, m) in sys.measures.enumerated() where measureLocations[m.index] == nil {
+                measureLocations[m.index] = MeasureLocation(systemIndex: si, slot: slot)
+            }
+        }
+        systemNotes = Array(repeating: [], count: systems.count)
+        for n in notes.values where systemNotes.indices.contains(n.systemIndex) { systemNotes[n.systemIndex].append(n) }
+        for i in systemNotes.indices { systemNotes[i].sort { $0.id < $1.id } }
+    }
 
     /// The x of a position in a measure, interpolated between the drawn columns and the
     /// measure's bounds (start of the music, closing barline). Nil when the measure was not
     /// laid out (not selected, or out of range). `position` is quarter notes into the measure
-    /// and is clamped to it.
-    public func x(measureIndex: Int, position: Rational) -> (systemIndex: Int, x: Double)? {
-        for (si, sys) in systems.enumerated() {
-            guard let m = sys.measures.first(where: { $0.index == measureIndex }) else { continue }
-            var anchors: [(Rational, Double)] = m.columns.map { ($0.onset, $0.x) }
-            if anchors.first.map({ $0.0 > .zero }) ?? true { anchors.insert((.zero, m.bodyStart), at: 0) }
-            if anchors.last.map({ $0.0 < m.duration }) ?? true { anchors.append((m.duration, m.barX)) }
-            if position <= anchors[0].0 { return (si, anchors[0].1) }
-            for i in 1..<anchors.count where position <= anchors[i].0 {
-                let (p0, x0) = anchors[i - 1], (p1, x1) = anchors[i]
-                let t = (position - p0).double / (p1 - p0).double
-                return (si, x0 + (x1 - x0) * t)
+    /// and is clamped to it. No allocation; O(columns of the measure).
+    public func x(measureIndex: Int, position: Rational) -> LaidX? {
+        guard let loc = measureLocations[measureIndex] else { return nil }
+        let si = loc.systemIndex
+        let m = systems[si].measures[loc.slot]
+        // Anchors: (0, first column at onset 0 or the start of the music), the columns after 0,
+        // and (duration, closing barline) unless a column already reaches the end.
+        var prevP = Rational.zero
+        var prevX = m.columns.first.flatMap { $0.onset <= .zero ? $0.x : nil } ?? m.bodyStart
+        if position <= prevP { return LaidX(systemIndex: si, x: prevX) }
+        for c in m.columns where c.onset > .zero {
+            if position <= c.onset {
+                let t = (position - prevP).double / (c.onset - prevP).double
+                return LaidX(systemIndex: si, x: prevX + (c.x - prevX) * t)
             }
-            return (si, anchors[anchors.count - 1].1)
+            prevP = c.onset
+            prevX = c.x
         }
-        return nil
+        if prevP < m.duration, position <= m.duration {
+            let t = (position - prevP).double / (m.duration - prevP).double
+            return LaidX(systemIndex: si, x: prevX + (m.barX - prevX) * t)
+        }
+        return LaidX(systemIndex: si, x: prevP < m.duration ? m.barX : prevX)
     }
 }

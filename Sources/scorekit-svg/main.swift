@@ -2,7 +2,7 @@ import Foundation
 import ScoreKit
 
 // Debug tool: lays a MusicXML/.mxl score out and writes the result as SVG to stdout.
-//   swift run scorekit-svg <file.musicxml|.mxl> [--width N | --line] [--font path] [--fingering] > out.svg
+//   swift run scorekit-svg <file.musicxml|.mxl> [--width N | --line] [--font path] [--fingering] [--cursor N] > out.svg
 // Glyphs are <text font-family="Bravura"> using an @font-face for the app's Bravura.otf.
 // 1 staff space = `scale` user units.
 
@@ -14,6 +14,7 @@ func fail(_ msg: String) -> Never {
 }
 
 var path: String?
+var cursorEntry: Int?
 var options = LayoutOptions(width: .fixed(80))
 // Font: --font, else $SCOREKIT_FONT, else no @font-face (the viewer's installed Bravura is used).
 var fontPath: String? = ProcessInfo.processInfo.environment["SCOREKIT_FONT"]
@@ -30,6 +31,10 @@ while !args.isEmpty {
         guard let v = args.first else { fail("--font needs a path") }
         args.removeFirst()
         fontPath = v
+    case "--cursor":
+        guard let v = args.first.flatMap(Int.init) else { fail("--cursor needs a timeline entry index") }
+        args.removeFirst()
+        cursorEntry = v
     case "--fingering": options.showFingering = true
     case "--no-numbers": options.showMeasureNumbers = false
     default:
@@ -38,7 +43,7 @@ while !args.isEmpty {
     }
 }
 guard let path else {
-    fail("usage: scorekit-svg <file.musicxml|.mxl> [--width N | --line] [--font path] [--fingering] [--no-numbers] > out.svg")
+    fail("usage: scorekit-svg <file.musicxml|.mxl> [--width N | --line] [--font path] [--fingering] [--no-numbers] [--cursor N] > out.svg")
 }
 
 let score: Score
@@ -115,6 +120,12 @@ if ProcessInfo.processInfo.environment["SCOREKIT_BOXES"] == "1" {
     for r in layout.noteBoxes.values {
         out += "<rect x=\"\(n(r.minX))\" y=\"\(n(r.minY))\" width=\"\(n(r.width))\" height=\"\(n(r.height))\" fill=\"none\" stroke=\"red\" stroke-width=\"0.05\"/>\n"
     }
+}
+if let k = cursorEntry {
+    let timeline = Timeline(score: score)
+    guard let spot = layout.cursorSpot(timeline: timeline, entryIndex: k) else { fail("no cursor spot for entry \(k) (of \(timeline.entries.count))") }
+    let r = spot.bandRect
+    out += "<rect x=\"\(n(r.minX))\" y=\"\(n(r.minY))\" width=\"\(n(r.width))\" height=\"\(n(r.height))\" fill=\"#3b82f6\" fill-opacity=\"0.3\"/>\n"
 }
 out += "</svg>\n"
 FileHandle.standardOutput.write(Data(out.utf8))
