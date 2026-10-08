@@ -130,6 +130,8 @@ public struct TempoDirection: Sendable, Hashable {
     /// `<sound tempo>` exactly as written.
     public var soundTempoText: String?
     public var metronome: Metronome?
+    /// The `<words>` of the direction ("Allegro"), when it also carries a tempo; nil when empty.
+    public var words: String?
 
     /// The musically correct tempo in quarters per minute (`<sound>` wins, else the
     /// metronome with its beat unit and dots applied). This is NOT OSMD's playback

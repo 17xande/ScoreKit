@@ -25,6 +25,9 @@ struct Engraving {
     let options: LayoutOptions
     let slots: [Slot]
     let measureCount: Int
+    /// Ties and volta brackets, planned over the whole score before it is broken into systems.
+    let ties: [TieSpec]
+    let voltas: [VoltaSpec]
 
     init(score: Score, options: LayoutOptions) {
         self.score = score
@@ -41,6 +44,8 @@ struct Engraving {
         }
         slots = s
         measureCount = Set(s.map(\.part)).map { score.parts[$0].measures.count }.max() ?? 0
+        ties = Self.pairTies(score, parts: Array(Set(s.map(\.part))).sorted())
+        voltas = s.first.map { Self.planVoltas(score, part: $0.part) } ?? []
     }
 
     // MARK: Run
@@ -82,8 +87,14 @@ struct Engraving {
         var boxes: [NoteID: CGRect] = [:]
         for (id, n) in notes where !n.isRest { boxes[id] = n.headBox }
         // The width is the target, or more when a measure did not fit.
-        return ScoreLayout(size: CGSize(width: max(target ?? 0, maxWidth), height: height), systems: systems,
-                           notes: notes, noteBoxes: boxes, groups: groups, beams: beams, sharedHeads: shared)
+        var tiedFrom: [NoteID: NoteID] = [:]
+        for t in ties {
+            if let a = t.start, let b = t.end, notes[a] != nil, notes[b] != nil { tiedFrom[b] = a }
+        }
+        var result = ScoreLayout(size: CGSize(width: max(target ?? 0, maxWidth), height: height), systems: systems,
+                                 notes: notes, noteBoxes: boxes, groups: groups, beams: beams, sharedHeads: shared)
+        result.tiedFrom = tiedFrom
+        return result
     }
 
     var multiPart: Bool { Set(slots.map(\.part)).count > 1 }

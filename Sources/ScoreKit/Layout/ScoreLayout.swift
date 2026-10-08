@@ -74,6 +74,10 @@ public struct BeamID: Sendable, Hashable, Comparable {
 /// renderer decides the colour; the suggested policy is plain ink.
 /// Flags belong to their group (`groupID` is the group id, no `noteID`). Tuplet numbers and
 /// brackets have neither id and are drawn in ink.
+/// Ties are filled `.path` items carrying the *start* note's `noteID` (and no `groupID`); a tie
+/// split across a system break gives two items, an outgoing half and an incoming half, both with
+/// the start note's id. Colour a tie like its start note. Voltas, jump marks, tempo marks and
+/// measure numbers have no ids and are drawn in ink. Fingering digits belong to their note.
 /// Shared heads: when two voices share one notehead (a unison of the same value), only the
 /// first note draws it (head, accidental and dots); the other note's `LaidNote.headBox` is the
 /// same box and `ScoreLayout.sharedHeads[second] = first`. Colour the single head by either
@@ -199,6 +203,9 @@ public struct ScoreLayout: Sendable {
     public var beams: [BeamID: [NoteID]]
     /// A note that shares another note's head (see `LayoutItem`), to that other note.
     public var sharedHeads: [NoteID: NoteID]
+    /// Tied notes that were both drawn: end note to start note (a tie split across systems is
+    /// still one entry). Half ties (let-ring, abandoned) have none.
+    public var tiedFrom: [NoteID: NoteID] = [:]
 
     /// The x of a position in a measure, interpolated between the drawn columns and the
     /// measure's bounds (start of the music, closing barline). Nil when the measure was not

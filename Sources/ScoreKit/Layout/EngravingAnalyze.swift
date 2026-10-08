@@ -74,19 +74,36 @@ extension Engraving {
             }
             finishColumns(&md)
             // Barlines.
+            func styleKind(_ style: String?) -> BarKind? {
+                switch style {
+                case "regular": .regular
+                case "light-heavy": .final
+                case "light-light": .double
+                case "none": BarKind.none
+                case "heavy": .heavy
+                case "heavy-light": .heavyLight
+                case "heavy-heavy": .heavyHeavy
+                case "dashed": .dashed
+                case "dotted": .dotted
+                case "tick": .tick
+                case "short": .short
+                default: nil
+                }
+            }
             for (p, meas) in present {
                 var kind: BarKind = m == measureCount - 1 ? .final : .regular
                 for b in meas.barlines {
                     if b.location == .left, b.repeatMark?.direction == .forward { md.leftRepeat = true }
+                    // A styled left barline (no repeat) is the previous measure's closing line,
+                    // unless that one says otherwise.
+                    if b.location == .left, b.repeatMark == nil, m > 0, let k = styleKind(b.style),
+                       out[m - 1].bars[p] == .regular {
+                        out[m - 1].bars[p] = k
+                        out[m - 1].endFixed = out[m - 1].endClefW + (out[m - 1].bars.values.map(\.width).max() ?? BarKind.regular.width)
+                    }
                     guard b.location == .right else { continue }
                     if b.repeatMark?.direction == .backward { kind = .repeatBackward; continue }
-                    switch b.style {
-                    case "light-heavy": kind = .final
-                    case "light-light": kind = .double
-                    case "none": kind = .none
-                    case "heavy": kind = .heavy
-                    default: break
-                    }
+                    if let k = styleKind(b.style) { kind = k }
                 }
                 md.bars[p] = kind
             }

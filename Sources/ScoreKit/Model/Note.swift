@@ -136,6 +136,8 @@ public struct Note: Sendable, Hashable {
     public var beams: [Beam] = []
     /// First `<fingering>` in the note's technical notations.
     public var fingering: String?
+    /// `placement` ("above" / "below") of that fingering, when given.
+    public var fingeringPlacement: String?
     public var timeModification: TimeModification?
 
     public var isGrace: Bool { grace != nil }

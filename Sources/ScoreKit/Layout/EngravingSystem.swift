@@ -31,6 +31,18 @@ struct StaffBuffer {
         maxY = max(maxY, r.maxY)
     }
 
+    /// Widens the extent to cover every item's ink, with a little air.
+    mutating func fitExtent() {
+        var lo = Double.infinity, hi = -Double.infinity
+        for it in items {
+            let b = it.bounds
+            if b.isNull { continue }
+            lo = min(lo, b.minY); hi = max(hi, b.maxY)
+        }
+        minY = min(minY, lo - 0.25)
+        maxY = max(maxY, hi + 0.25)
+    }
+
     mutating func glyph(_ g: Glyph, at p: CGPoint, size: Double? = nil, id: NoteID? = nil) {
         items.append(.glyph(codepoint: g.codepoint, position: p, size: size, noteID: id))
         grow(g.metrics.box(at: p, size: size))
@@ -99,7 +111,7 @@ extension Engraving {
 
         var bufs = [StaffBuffer](repeating: StaffBuffer(), count: slots.count)
         var bars: [(x: Double, kind: BarKind, part: Int)] = []
-        var repeatStarts: [(x: Double, part: Int)] = []
+        var repeatStarts: [(x: Double, part: Int, shared: Bool)] = []
         var laidColumns: [LaidColumn] = []
         var laidMeasures: [LaidMeasure] = []
         var placed: [PlacedGroup] = []
@@ -129,8 +141,17 @@ extension Engraving {
             let nextHasRepeat = k + 1 < range.count && measures[mi + 1].leftRepeat
 
             for part in Set(slots.map(\.part)) {
-                if let kind = md.bars[part], !(kind == .regular && nextHasRepeat) { bars.append((endX, kind, part)) }
-                if md.leftRepeat, let off = pl.offset[.repeatStart] { repeatStarts.append((x0 + off, part)) }
+                // A repeat start replaces a plain, double, final or heavy line before it, and shares
+                // the closing repeat's heavy line (:||:).
+                if let kind = md.bars[part] {
+                    let replaced = nextHasRepeat && kind != .none && kind != .repeatBackward && kind != .dashed
+                        && kind != .dotted && kind != .tick && kind != .short
+                    if !replaced { bars.append((endX, kind, part)) }
+                }
+                if md.leftRepeat, let off = pl.offset[.repeatStart] {
+                    let shared = k > 0 && measures[mi - 1].bars[part] == .repeatBackward
+                    repeatStarts.append((x0 + off, part, shared))
+                }
             }
 
             for si in slots.indices {
@@ -201,11 +222,15 @@ extension Engraving {
         }
         // Pass 2: emit items.
         for p in placed { emit(p, into: &bufs[p.slotIndex]) }
+        layoutTies(range: range, placed: placed, measures: measures, laid: laidMeasures, bufs: &bufs)
+        var pageLimit: Double?
+        if case .fixed(let w) = options.width { pageLimit = w - rightMargin }
+        layoutOverlays(range: range, measures: measures, laid: laidMeasures, limit: pageLimit, buf: &bufs[0])
+        for i in bufs.indices { bufs[i].fitExtent() }
 
         // Vertical placement.
-        let numberRoom = options.showMeasureNumbers && range.lowerBound > 0 ? 2.6 : 0
         var tops: [Double] = []
-        var y = systemTop + max(numberRoom, -bufs[0].minY)
+        var y = systemTop + (-bufs[0].minY)
         for si in slots.indices {
             tops.append(y)
             if si + 1 < slots.count {
@@ -245,7 +270,7 @@ extension Engraving {
             return (tops[idx.first!], tops[idx.last!] + 4, idx.map { tops[$0] })
         }
         for b in bars { items += barline(b.kind, rightEdge: b.x, span: partSpan(b.part)) }
-        for r in repeatStarts { items += repeatStart(at: r.x, span: partSpan(r.part)) }
+        for r in repeatStarts { items += repeatStart(at: r.x, shared: r.shared, span: partSpan(r.part)) }
         // System barline.
         if let f = tops.first, let l = tops.last {
             items.append(.line(from: CGPoint(x: staffLeft + 0.08, y: f), to: CGPoint(x: staffLeft + 0.08, y: l + 4),
@@ -266,20 +291,19 @@ extension Engraving {
             items.append(.glyph(codepoint: Glyph.bracketTop.codepoint, position: CGPoint(x: bx, y: f)))
             items.append(.glyph(codepoint: Glyph.bracketBottom.codepoint, position: CGPoint(x: bx, y: l + 4)))
         }
-        // Measure number.
-        if options.showMeasureNumbers, let f = tops.first, range.lowerBound > 0 {
-            items.append(.text(measures[range.lowerBound].number, position: CGPoint(x: staffLeft + 0.2, y: f - 1.2),
-                               style: TextStyle(size: 1.7, italic: true)))
-        }
-
-        // A measure wider than the page overflows; the frame reports what was really used.
-        let content = endX + rightMargin
+        // A measure wider than the page overflows; the frame reports what was really used, and
+        // it covers every item's ink.
+        var ink = CGRect.null
+        for it in items { ink = ink.union(it.bounds) }
+        let content = max(endX + rightMargin, ink.isNull ? 0 : ink.maxX)
         let width: Double
         switch options.width {
-        case .fixed(let w): width = max(w, content)
+        case .fixed(let w): width = content > w + 1e-6 ? content : w
         case .singleLine: width = content
         }
-        let frame = CGRect(x: 0, y: systemTop, width: width, height: bottom - systemTop + 0.5)
+        let frameTop = min(systemTop, ink.isNull ? systemTop : ink.minY)
+        let frameBottom = max(bottom + 0.5, ink.isNull ? 0 : ink.maxY)
+        let frame = CGRect(x: 0, y: frameTop, width: width, height: frameBottom - frameTop)
         let staves = slots.enumerated().map { LaidStaff(partIndex: $1.part, staffInPart: $1.staff, top: tops[$0]) }
         let system = LaidSystem(frame: frame, staves: staves, measureRange: range, items: items,
                                 columns: laidColumns, measures: laidMeasures)
@@ -297,8 +321,32 @@ extension Engraving {
         func heavy(_ rightX: Double) -> LayoutItem {
             .rect(CGRect(x: rightX - thick, y: span.top, width: thick, height: span.bottom - span.top))
         }
+        func dashes(_ rightX: Double, on: Double, off: Double) -> [LayoutItem] {
+            let x = rightX - thin / 2
+            var out: [LayoutItem] = []
+            for t in span.tops {
+                var y = t
+                while y < t + 4 - 1e-9 {
+                    out.append(.line(from: CGPoint(x: x, y: y), to: CGPoint(x: x, y: min(y + on, t + 4)), thickness: thin))
+                    y += on + off
+                }
+            }
+            return out
+        }
         switch kind {
         case .none: return []
+        case .dashed: return dashes(r, on: 0.6, off: 0.4)
+        case .dotted: return dashes(r, on: 0.16, off: 0.34)
+        case .tick:
+            return span.tops.map { t in
+                .line(from: CGPoint(x: r - thin / 2, y: t - 0.5), to: CGPoint(x: r - thin / 2, y: t + 0.5), thickness: thin)
+            }
+        case .short:
+            return span.tops.map { t in
+                .line(from: CGPoint(x: r - thin / 2, y: t + 1), to: CGPoint(x: r - thin / 2, y: t + 3), thickness: thin)
+            }
+        case .heavyLight: return [line(r), heavy(r - thin - 0.4)]
+        case .heavyHeavy: return [heavy(r), heavy(r - thick - 0.4)]
         case .regular: return [line(r)]
         case .double: return [line(r), line(r - thin - 0.4)]
         case .heavy: return [heavy(r)]
@@ -316,11 +364,15 @@ extension Engraving {
         }
     }
 
-    private func repeatStart(at x: Double, span: (top: Double, bottom: Double, tops: [Double])) -> [LayoutItem] {
+    private func repeatStart(at x0: Double, shared: Bool, span: (top: Double, bottom: Double, tops: [Double])) -> [LayoutItem] {
         let thin = EngravingDefaults.thinBarlineThickness
         let thick = EngravingDefaults.thickBarlineThickness
-        var out: [LayoutItem] = [
+        // Shared with a closing repeat's heavy line just before it: only the thin line and dots.
+        let x = shared ? x0 - thick : x0
+        var out: [LayoutItem] = shared ? [] : [
             .rect(CGRect(x: x, y: span.top, width: thick, height: span.bottom - span.top)),
+        ]
+        out += [
             .line(from: CGPoint(x: x + thick + 0.4 + thin / 2, y: span.top), to: CGPoint(x: x + thick + 0.4 + thin / 2, y: span.bottom), thickness: thin),
         ]
         let dotX = x + thick + 0.4 + thin + 0.16
@@ -463,20 +515,96 @@ extension Engraving {
                 }
             }
         }
-        // Fingering: above a down stem's highest head, below an up stem's lowest.
-        // TODO(4b): chord fingerings and stem/beam collisions.
-        if options.showFingering, !g.grace {
-            let up = g.stemUp
-            let target = up ? g.notes.first! : g.notes.last!
-            if let f = target.note.fingering?.first, let d = f.wholeNumberValue, d <= 5 {
-                let glyph = [Glyph.fingering0, .fingering1, .fingering2, .fingering3, .fingering4, .fingering5][d]
-                let m = glyph.metrics
-                let hx = x + g.baseDX + target.dx + g.headWidth / 2
-                let ox = hx - (m.minX + m.maxX) / 2 * 0.75
-                let hy = StaffGeometry.y(target.p)
-                let oy = up ? max(hy + 2.0, 5.2) : min(hy - 1.0, -1.2)
-                buf.glyph(glyph, at: CGPoint(x: ox, y: oy), size: 3, id: target.note.id)
+        emitFingering(pg, into: &buf)
+    }
+}
+
+extension Engraving {
+    /// One fingering label: a run of digit glyphs (and hyphens for "3-4"), centred on `cx`.
+    private func fingeringItems(_ text: String, cx: Double, baseline: Double, size: Double, id: NoteID) -> [LayoutItem] {
+        let digits = [Glyph.fingering0, .fingering1, .fingering2, .fingering3, .fingering4, .fingering5]
+        let k = size / Glyph.standardSize
+        enum Piece { case digit(Glyph), dash }
+        var pieces: [Piece] = []
+        for ch in text {
+            if let d = ch.wholeNumberValue, d <= 5 { pieces.append(.digit(digits[d])) }
+            else if "-\u{2013}\u{2014}".contains(ch) { pieces.append(.dash) }
+        }
+        let dashW = 0.5
+        var width = 0.0
+        for p in pieces { if case .digit(let g) = p { width += g.metrics.advance * k } else { width += dashW } }
+        var x = cx - width / 2
+        var out: [LayoutItem] = []
+        for p in pieces {
+            switch p {
+            case .digit(let g):
+                out.append(.glyph(codepoint: g.codepoint, position: CGPoint(x: x, y: baseline), size: size, noteID: id))
+                x += g.metrics.advance * k
+            case .dash:
+                out.append(.line(from: CGPoint(x: x + 0.1, y: baseline - 0.38), to: CGPoint(x: x + dashW - 0.1, y: baseline - 0.38),
+                                 thickness: 0.1, noteID: id))
+                x += dashW
             }
         }
+        return out
+    }
+
+    /// Fingering sits outside the staff, on the side away from the stem (with two voices:
+    /// above for the upper voice, below for the lower one, past the stem tip and any beam), or
+    /// where `placement` says. Every fingered note of a chord gets its digits in a stack in
+    /// pitch order. Digits keep clear of tuplet numbers and brackets on their side.
+    func emitFingering(_ pg: PlacedGroup, into buf: inout StaffBuffer) {
+        let g = pg.group
+        guard options.showFingering, !g.grace, !g.isRest else { return }
+        let size = 3.0
+        let fingered = g.notes.filter { ($0.note.fingering ?? "").contains { $0.isNumber } }
+        guard !fingered.isEmpty else { return }
+        var above = g.multiVoice ? g.stemUp : !g.stemUp
+        if let placement = fingered.compactMap(\.note.fingeringPlacement).first {
+            if placement == "above" { above = true } else if placement == "below" { above = false }
+        }
+        // Nearest the chord first: the lowest note's digits when above, the highest when below.
+        let stack = above ? fingered : fingered.reversed()
+        let top = StaffGeometry.y(g.notes.last!.p) - 0.5
+        let bottom = StaffGeometry.y(g.notes.first!.p) + 0.5
+        var baseline: Double
+        if above {
+            var edge = min(top, -0.7)
+            if let s = pg.stem, s.up { edge = min(edge, s.yEnd) }
+            baseline = edge - 0.5
+        } else {
+            var edge = max(bottom, 3.7)
+            if let s = pg.stem, !s.up { edge = max(edge, s.yEnd) }
+            baseline = edge + 1.5
+        }
+        let step = 1.0
+        let cxChord = pg.x + g.baseDX + ((g.notes.map(\.dx).min() ?? 0) + (g.notes.map(\.dx).max() ?? 0)) / 2 + g.headWidth / 2
+        func place(_ base: Double) -> [LayoutItem] {
+            var out: [LayoutItem] = []
+            var b = base
+            for n in stack {
+                let cx = stack.count > 1 ? cxChord : pg.x + g.baseDX + n.dx + g.headWidth / 2
+                out += fingeringItems(n.note.fingering!, cx: cx, baseline: b, size: size, id: n.note.id)
+                b += above ? -step : step
+            }
+            return out
+        }
+        // Tuplet numbers and brackets already placed on this staff.
+        let tupletDigits = Set((0...9).map { Glyph.tupletDigit($0).codepoint })
+        let tuplets: [CGRect] = buf.items.compactMap { it in
+            switch it {
+            case .glyph(let cp, _, _, nil, nil) where tupletDigits.contains(cp): return it.bounds
+            case .line(_, _, let t, nil, nil) where t == EngravingDefaults.tupletBracketThickness: return it.bounds
+            default: return nil
+            }
+        }
+        var items = place(baseline)
+        for _ in 0..<12 {
+            let hit = items.contains { it in tuplets.contains { $0.insetBy(dx: -0.1, dy: -0.1).intersects(it.bounds) } }
+            if !hit { break }
+            baseline += above ? -0.4 : 0.4
+            items = place(baseline)
+        }
+        buf.items += items
     }
 }

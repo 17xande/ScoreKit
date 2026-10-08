@@ -146,6 +146,10 @@ struct MusicXMLParser {
                 let metro = el.children(named: "direction-type").lazy.compactMap { dt in
                     dt.child(named: "metronome").map(Self.metronome)
                 }.first
+                let words = el.children(named: "direction-type").lazy.compactMap { dt -> String? in
+                    let t = dt.child(named: "words")?.text.trimmingCharacters(in: .whitespacesAndNewlines)
+                    return t.flatMap { $0.isEmpty ? nil : $0 }
+                }.first
                 if text != nil || metro != nil {
                     m.directions.append(TempoDirection(
                         source: .direction, onset: cursor, offset: try offset(el, state),
@@ -153,7 +157,7 @@ struct MusicXMLParser {
                         soundOffset: try sound.flatMap { try optionalOffset($0, state) },
                         placement: el.trimmedAttribute("placement"), staff: el.child(named: "staff")?.int,
                         soundTempo: text.flatMap(Double.init).flatMap { $0 > 0 ? $0 : nil },
-                        soundTempoText: text, metronome: metro))
+                        soundTempoText: text, metronome: metro, words: words))
                 }
             case "sound":
                 m.jumpMarks += Self.jumpMarks(in: el, sound: el, onset: cursor)
@@ -414,6 +418,7 @@ struct MusicXMLParser {
             if n.fingering == nil {
                 for f in notations.child(named: "technical")?.children(named: "fingering") ?? [] where !f.text.isEmpty {
                     n.fingering = f.text
+                    n.fingeringPlacement = f.trimmedAttribute("placement")
                     break
                 }
             }

@@ -5,6 +5,7 @@ import Foundation
 
 enum BarKind: Sendable, Hashable {
     case none, regular, double, final, heavy, repeatBackward
+    case heavyLight, heavyHeavy, dashed, dotted, tick, short
 
     /// Horizontal room the line(s) take, ending at the barline's right edge.
     var width: Double {
@@ -15,6 +16,9 @@ enum BarKind: Sendable, Hashable {
         case .final: 0.16 + 0.4 + 0.5
         case .heavy: 0.5
         case .repeatBackward: 0.4 + 0.16 + 0.16 + 0.4 + 0.5
+        case .heavyLight: 0.5 + 0.4 + 0.16
+        case .heavyHeavy: 0.5 + 0.4 + 0.5
+        case .dashed, .dotted, .tick, .short: 0.16
         }
     }
 }

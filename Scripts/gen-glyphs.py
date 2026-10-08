@@ -51,6 +51,7 @@ flag128thUp flag128thDown
 fingering0 fingering1 fingering2 fingering3 fingering4 fingering5
 tuplet0 tuplet1 tuplet2 tuplet3 tuplet4 tuplet5 tuplet6 tuplet7 tuplet8 tuplet9
 segno coda
+metNoteWhole metNoteHalfUp metNoteQuarterUp metNote8thUp metNote16thUp metAugmentationDot
 """.split()
 
 def swift_name(n):

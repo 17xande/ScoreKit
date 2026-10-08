@@ -102,6 +102,12 @@ public enum Glyph: UInt32, Sendable, Hashable, CaseIterable {
     case tuplet9 = 0xE889
     case segno = 0xE047
     case coda = 0xE048
+    case metNoteWhole = 0xECA2
+    case metNoteHalfUp = 0xECA3
+    case metNoteQuarterUp = 0xECA5
+    case metNote8thUp = 0xECA7
+    case metNote16thUp = 0xECA9
+    case metAugmentationDot = 0xECB7
 }
 
 extension Glyph {
@@ -190,6 +196,12 @@ extension Glyph {
         .tuplet9: GlyphMetrics(minX: 0.04, minY: -0.032, maxX: 1.256, maxY: 1.5, advance: 1.216, anchors: [:]),
         .segno: GlyphMetrics(minX: 0.016, minY: -0.108, maxX: 2.2, maxY: 3.036, advance: 2.228, anchors: [:]),
         .coda: GlyphMetrics(minX: -0.016, minY: -0.632, maxX: 3.82, maxY: 3.592, advance: 3.816, anchors: [:]),
+        .metNoteWhole: GlyphMetrics(minX: 0.0, minY: -0.5, maxX: 1.836, maxY: 0.592, advance: 1.836, anchors: [:]),
+        .metNoteHalfUp: GlyphMetrics(minX: 0.0, minY: -0.564, maxX: 1.364, maxY: 2.752, advance: 1.364, anchors: [:]),
+        .metNoteQuarterUp: GlyphMetrics(minX: 0.0, minY: -0.564, maxX: 1.328, maxY: 2.752, advance: 1.328, anchors: [:]),
+        .metNote8thUp: GlyphMetrics(minX: 0.0, minY: -0.564, maxX: 2.132, maxY: 2.784, advance: 2.136, anchors: [:]),
+        .metNote16thUp: GlyphMetrics(minX: 0.0, minY: -0.564, maxX: 2.084, maxY: 2.8, advance: 2.088, anchors: [:]),
+        .metAugmentationDot: GlyphMetrics(minX: 0.0, minY: -0.2, maxX: 0.4, maxY: 0.2, advance: 0.4, anchors: [:]),
     ]
 }
 
