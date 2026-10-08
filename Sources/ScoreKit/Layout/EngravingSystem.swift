@@ -21,6 +21,10 @@ struct StaffBuffer {
     var maxY = 6.0
     var notes: [LocalNote] = []
     var groups: [NoteID: [NoteID]] = [:]
+    /// Beam to its member groups, in time order.
+    var beams: [BeamID: [NoteID]] = [:]
+    /// Second note of a shared head to the first.
+    var shared: [NoteID: NoteID] = [:]
 
     mutating func grow(_ r: CGRect) {
         minY = min(minY, r.minY)
@@ -52,11 +56,31 @@ struct PlacedGroup {
     var x: Double
     var slotIndex: Int
     var stem: StemGeometry?
+    /// Drawn under a beam: no flag, and the stem is cut to the beam.
+    var beamed = false
+}
+
+/// What laying out one system produces.
+struct SystemResult {
+    var system: LaidSystem
+    var notes: [NoteID: LaidNote]
+    var groups: [NoteID: [NoteID]]
+    var beams: [BeamID: [NoteID]]
+    var sharedHeads: [NoteID: NoteID]
+}
+
+/// The placed groups of one staff-measure, with the beams and tuplets that span them.
+struct StaffMeasurePlacement {
+    var slot: Int
+    /// Index into the system's placed groups for each of the staff-measure's groups (-1: none).
+    var pidx: [Int]
+    var beams: [BeamGroup]
+    var tuplets: [TupletSpan]
 }
 
 extension Engraving {
     func layoutSystem(_ measures: [MeasureData], _ range: Range<Int>, systemIndex: Int, top systemTop: Double,
-                      justify: Bool, targetWidth: Double?) -> (LaidSystem, [NoteID: LaidNote], [NoteID: [NoteID]]) {
+                      justify: Bool, targetWidth: Double?) -> SystemResult {
         let plans = range.map { plan(measures[$0], first: $0 == range.lowerBound) }
         // Justification stretches only the rhythmic part of each gap.
         let fixedWidth = plans.reduce(0) { $0 + $1.total }
@@ -79,6 +103,7 @@ extension Engraving {
         var laidColumns: [LaidColumn] = []
         var laidMeasures: [LaidMeasure] = []
         var placed: [PlacedGroup] = []
+        var slotMeasures: [StaffMeasurePlacement] = []
         var x0 = staffLeft
 
         for (k, mi) in range.enumerated() {
@@ -144,7 +169,8 @@ extension Engraving {
                 }
                 // Pass 1: position the groups.
                 var graceLeft: [Rational: Double] = [:]
-                for g in sm.groups {
+                var pidx = [Int](repeating: -1, count: sm.groups.count)
+                for (gi, g) in sm.groups.enumerated() {
                     guard let i = columnIndex[g.onset] else { continue }
                     var x = xs[i]
                     if g.grace {
@@ -156,14 +182,23 @@ extension Engraving {
                         let mid = (bodyStart + (endX - md.endFixed)) / 2
                         x = mid - Glyph.rest(g.value).metrics.advance / 2
                     }
+                    pidx[gi] = placed.count
                     placed.append(PlacedGroup(group: g, x: x, slotIndex: si, stem: stemGeometry(g, x: x)))
                 }
+                slotMeasures.append(StaffMeasurePlacement(slot: si, pidx: pidx, beams: sm.beams, tuplets: sm.tuplets))
             }
             x0 = endX
         }
         let endX = x0
 
-        // Between the passes: 4b adjusts stems (beams, flags) here, 4c places ties.
+        // Between the passes: beams cut the stems of their groups, then tuplets sit outside them
+        // (4c places ties here).
+        for sm in slotMeasures {
+            for b in sm.beams { layoutBeam(b, sm.pidx, &placed, &bufs[sm.slot]) }
+        }
+        for sm in slotMeasures {
+            for t in sm.tuplets { layoutTuplet(t, sm.pidx, placed, &bufs[sm.slot]) }
+        }
         // Pass 2: emit items.
         for p in placed { emit(p, into: &bufs[p.slotIndex]) }
 
@@ -186,6 +221,8 @@ extension Engraving {
         var items: [LayoutItem] = []
         var notes: [NoteID: LaidNote] = [:]
         var groups: [NoteID: [NoteID]] = [:]
+        var beamMap: [BeamID: [NoteID]] = [:]
+        var sharedMap: [NoteID: NoteID] = [:]
         for (si, t) in tops.enumerated() {
             for i in 0..<5 {
                 items.append(.line(from: CGPoint(x: staffLeft, y: t + Double(i)), to: CGPoint(x: endX, y: t + Double(i)),
@@ -198,6 +235,8 @@ extension Engraving {
                                        stemEnd: n.stemEnd?.offset(dy: t), isRest: n.isRest)
             }
             groups.merge(bufs[si].groups) { a, _ in a }
+            beamMap.merge(bufs[si].beams) { a, _ in a }
+            sharedMap.merge(bufs[si].shared) { a, _ in a }
         }
 
         // Barlines span all staves of a part.
@@ -244,7 +283,7 @@ extension Engraving {
         let staves = slots.enumerated().map { LaidStaff(partIndex: $1.part, staffInPart: $1.staff, top: tops[$0]) }
         let system = LaidSystem(frame: frame, staves: staves, measureRange: range, items: items,
                                 columns: laidColumns, measures: laidMeasures)
-        return (system, notes, groups)
+        return SystemResult(system: system, notes: notes, groups: groups, beams: beamMap, sharedHeads: sharedMap)
     }
 
     // MARK: Barlines
@@ -300,7 +339,7 @@ extension Engraving {
         // the chord note above already has its dot there. Walk from the top.
         var used = Set<Int>()
         var out: [(Int, HeadNote)] = []
-        for n in g.notes.reversed() {
+        for n in g.notes.reversed() where n.sharedWith == nil {
             var p = (n.p & 1) == 0 ? n.p + 1 : n.p
             if used.contains(p), (n.p & 1) == 0 { p -= 2 }
             guard used.insert(p).inserted else { continue }
@@ -309,15 +348,17 @@ extension Engraving {
         return out
     }
 
-    /// Pass 1 for the stem: the placeholder rule (up if below the middle line, else down;
-    /// an explicit `<stem>` wins). TODO(4b): flags, beams and proper stem lengths.
+    /// Pass 1 for the stem: direction comes from the analysis (`Group.stemUp`); the length is
+    /// 3.5 sp from the far head, reaching the middle line at least, and longer for 32nd and
+    /// shorter flags. Beams replace the tip later.
     func stemGeometry(_ g: Group, x: Double) -> StemGeometry? {
-        guard !g.isRest, g.value != .whole, g.value != .breve else { return nil }
+        guard !g.isRest, !g.stemNone, g.value != .whole, g.value != .breve else { return nil }
         let size: Double? = g.scale == 1 ? nil : g.size
         let hm = g.head.metrics
         let lowest = g.notes.first!, highest = g.notes.last!
         let thick = EngravingDefaults.stemThickness
-        let len = stemLength * g.scale
+        let levels = g.beamIndex == nil ? beamLevel(g.value) : 1
+        let len = (stemLength + Double(max(0, levels - 2)) * 0.75) * g.scale
         if g.stemUp {
             let a = hm.anchor("stemUpSE", size: size) ?? CGPoint(x: hm.maxX, y: -0.168)
             let sx = x + g.baseDX + a.x - thick / 2
@@ -343,14 +384,14 @@ extension Engraving {
         if g.isRest {
             let id = g.notes[0].note.id
             let glyph = Glyph.rest(g.value)
-            let y = (g.value == .whole || g.value == .breve) ? 1.0 : 2.0
+            let y = ((g.value == .whole || g.value == .breve) ? 1.0 : 2.0) + g.restDY
             buf.glyph(glyph, at: CGPoint(x: x, y: y), id: id)
             buf.notes.append(LocalNote(id: id, headBox: glyph.metrics.box(at: CGPoint(x: x, y: y)), groupID: lead,
                                        stemEnd: nil, isRest: true))
             if g.dots > 0 {
                 var dx = x + glyph.metrics.advance + 0.4
                 for _ in 0..<g.dots {
-                    buf.glyph(.augmentationDot, at: CGPoint(x: dx, y: 1.5), id: id)
+                    buf.glyph(.augmentationDot, at: CGPoint(x: dx, y: 1.5 + g.restDY), id: id)
                     dx += 0.55
                 }
             }
@@ -362,7 +403,8 @@ extension Engraving {
         for n in g.notes {
             let hx = x + g.baseDX + n.dx
             let origin = CGPoint(x: hx, y: StaffGeometry.y(n.p))
-            buf.glyph(head, at: origin, size: size, id: n.note.id)
+            if let other = n.sharedWith { buf.shared[n.note.id] = other }
+            else { buf.glyph(head, at: origin, size: size, id: n.note.id) }
             let box = hm.box(at: origin, size: size)
             buf.notes.append(LocalNote(id: n.note.id, headBox: box, groupID: lead,
                                        stemEnd: pg.stem.map { CGPoint(x: $0.x, y: $0.yEnd) }, isRest: false))
@@ -380,9 +422,9 @@ extension Engraving {
                                    thickness: EngravingDefaults.legerLineThickness, groupID: lead))
         }
         // Accidentals, nearest column first.
-        let leftmost = x + g.baseDX + (g.notes.map(\.dx).min() ?? 0)
+        let leftmost = x + (g.leftEdge ?? (g.baseDX + (g.notes.map(\.dx).min() ?? 0)))
         for n in g.notes {
-            guard let acc = n.acc else { continue }
+            guard let acc = n.acc, n.sharedWith == nil else { continue }
             let am = acc.metrics
             var right = leftmost - 0.2 * scale
             for j in 0..<n.accCol { right -= g.accColW[j] }
@@ -401,12 +443,20 @@ extension Engraving {
             buf.items.append(.line(from: CGPoint(x: s.x, y: s.yStart), to: CGPoint(x: s.x, y: s.yEnd),
                                    thickness: s.thickness, groupID: lead))
             buf.grow(CGRect(x: s.x, y: min(s.yStart, s.yEnd), width: s.thickness, height: abs(s.yEnd - s.yStart)))
+            // Flag on an unbeamed stem.
+            let levels = beamLevel(g.value)
+            if !pg.beamed, levels > 0, let flag = Glyph.flag(levels: levels, up: s.up) {
+                let a = flag.metrics.anchor(s.up ? "stemUpNW" : "stemDownSW", size: size) ?? .zero
+                let o = CGPoint(x: s.x - s.thickness / 2 - a.x, y: s.yEnd - a.y)
+                buf.items.append(.glyph(codepoint: flag.codepoint, position: o, size: size, groupID: lead))
+                buf.grow(flag.metrics.box(at: o, size: size))
+            }
         }
         // Dots, each belonging to its note.
         if g.dots > 0 {
             let maxDX = g.notes.map(\.dx).max() ?? 0
             for (p, n) in Self.dotPositions(g) {
-                var dx = x + g.baseDX + maxDX + g.headWidth + 0.4 * scale
+                var dx = x + g.baseDX + maxDX + g.headWidth + 0.4 * scale + g.dotExtra
                 for _ in 0..<g.dots {
                     buf.glyph(.augmentationDot, at: CGPoint(x: dx, y: StaffGeometry.y(p)), size: size, id: n.note.id)
                     dx += 0.55 * scale

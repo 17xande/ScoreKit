@@ -47,7 +47,7 @@ struct Engraving {
 
     func run() -> ScoreLayout {
         guard !slots.isEmpty, measureCount > 0 else {
-            return ScoreLayout(size: CGSize(width: 0, height: 0), systems: [], notes: [:], noteBoxes: [:], groups: [:])
+            return ScoreLayout(size: CGSize(width: 0, height: 0), systems: [], notes: [:], noteBoxes: [:], groups: [:], beams: [:], sharedHeads: [:])
         }
         let measures = analyze()
         let ranges: [Range<Int>]
@@ -62,14 +62,19 @@ struct Engraving {
         var systems: [LaidSystem] = []
         var notes: [NoteID: LaidNote] = [:]
         var groups: [NoteID: [NoteID]] = [:]
+        var beams: [BeamID: [NoteID]] = [:]
+        var shared: [NoteID: NoteID] = [:]
         var y = 0.0
         var maxWidth = 0.0
         for (i, r) in ranges.enumerated() {
             let last = i == ranges.count - 1
-            let (sys, n, g) = layoutSystem(measures, r, systemIndex: i, top: y, justify: !last && target != nil, targetWidth: target)
+            let res = layoutSystem(measures, r, systemIndex: i, top: y, justify: !last && target != nil, targetWidth: target)
+            let sys = res.system
             systems.append(sys)
-            notes.merge(n) { a, _ in a }
-            groups.merge(g) { a, _ in a }
+            notes.merge(res.notes) { a, _ in a }
+            groups.merge(res.groups) { a, _ in a }
+            beams.merge(res.beams) { a, _ in a }
+            shared.merge(res.sharedHeads) { a, _ in a }
             y = sys.frame.maxY + options.systemDistance
             maxWidth = max(maxWidth, sys.frame.width)
         }
@@ -78,7 +83,7 @@ struct Engraving {
         for (id, n) in notes where !n.isRest { boxes[id] = n.headBox }
         // The width is the target, or more when a measure did not fit.
         return ScoreLayout(size: CGSize(width: max(target ?? 0, maxWidth), height: height), systems: systems,
-                           notes: notes, noteBoxes: boxes, groups: groups)
+                           notes: notes, noteBoxes: boxes, groups: groups, beams: beams, sharedHeads: shared)
     }
 
     var multiPart: Bool { Set(slots.map(\.part)).count > 1 }

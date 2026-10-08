@@ -51,7 +51,7 @@ private func maxX(_ item: LayoutItem) -> Double {
     case .line(let a, let b, let t, _, _): max(a.x, b.x) + t / 2
     case .rect(let r, _, _): r.maxX
     case .text(_, let p, _): p.x
-    case .path(let els, _, _, _, _):
+    case .path(let els, _, _, _, _), .beam(let els, _):
         els.map { e -> Double in
             switch e {
             case .move(let p), .line(let p): p.x

@@ -67,6 +67,9 @@ extension Engraving {
                 }
                 sm.time = times[si]
                 sm.groups = groups(for: slot, in: meas, sm: sm, measureDuration: md.duration)
+                var pickup = Rational.zero
+                if m == 0, let ts = sm.time, md.duration < ts.quarters { pickup = ts.quarters - md.duration }
+                engraveVoices(&sm, pickupOffset: pickup)
                 md.slots.append(sm)
             }
             finishColumns(&md)
@@ -141,6 +144,8 @@ extension Engraving {
             if key != curKey { state = [:]; curKey = key }
             var g = Group(leadID: first.id, onset: first.onset, notes: [])
             g.grace = first.isGrace
+            g.voice = first.voice
+            g.stemNone = first.stem.map { $0 == Stem.none } ?? false
             g.scale = first.isGrace ? 0.6 : 1
             // Written value and dots.
             if let v = first.noteValue {
@@ -199,45 +204,10 @@ extension Engraving {
         return out
     }
 
-    /// Stem direction, flipped seconds and accidental columns.
+    /// Sorts the heads bottom to top. Stems, flipped seconds and accidentals come later, in
+    /// `engraveVoices`, once the voices are known.
     private func finalize(_ g: inout Group) {
         g.notes.sort { $0.p < $1.p }
-        if let s = g.notes.compactMap(\.note.stem).first(where: { $0 == .up || $0 == .down }) {
-            g.stemUp = s == .up
-        } else {
-            let far = g.notes.max { abs($0.p - 4) < abs($1.p - 4) }!
-            g.stemUp = far.p < 4
-        }
-        let w = g.headWidth
-        var n = g.notes
-        if g.stemUp || [.whole, .breve].contains(g.value) {
-            var prevFlipped = false
-            for i in 1..<max(1, n.count) {
-                if n[i].p - n[i - 1].p == 1, !prevFlipped { n[i].dx = w; prevFlipped = true } else { prevFlipped = false }
-            }
-        } else if n.count > 1 {
-            var prevFlipped = false
-            for i in stride(from: n.count - 2, through: 0, by: -1) {
-                if n[i + 1].p - n[i].p == 1, !prevFlipped { n[i].dx = -w; prevFlipped = true } else { prevFlipped = false }
-            }
-        }
-        // Accidental columns: nearest the head first, skipping ones that would collide.
-        var cols: [[Int]] = []
-        var widths: [Double] = []
-        for i in n.indices.reversed() {
-            guard let acc = n[i].acc else { continue }
-            var bw = acc.metrics.advance
-            if n[i].parens { bw += Glyph.accidentalParensLeft.metrics.advance + Glyph.accidentalParensRight.metrics.advance }
-            bw *= g.scale
-            var k = 0
-            while k < cols.count, cols[k].contains(where: { abs($0 - n[i].p) < 6 }) { k += 1 }
-            if k == cols.count { cols.append([]); widths.append(0) }
-            cols[k].append(n[i].p)
-            widths[k] = max(widths[k], bw + 0.12 * g.scale)
-            n[i].accCol = k
-        }
-        g.notes = n
-        g.accColW = widths
     }
 
     // MARK: Columns

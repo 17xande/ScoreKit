@@ -29,6 +29,8 @@ struct HeadNote {
     var acc: Glyph?
     var parens = false
     var accCol = 0
+    /// The other voice's note whose head this one shares (the head is drawn once, there).
+    var sharedWith: NoteID?
 }
 
 struct Group {
@@ -46,25 +48,41 @@ struct Group {
     var scale = 1.0
     var head: Glyph = .noteheadBlack
     var accColW: [Double] = []
+    var voice = "1"
+    /// Rank of the voice among the staff's voices in the measure (0 is the upper one).
+    var voiceRank = 0
+    var multiVoice = false
+    /// `<stem>none</stem>`: no stem, flag or beam.
+    var stemNone = false
+    /// Whole-group shift to the right, to clear another voice's heads.
+    var voiceDX = 0.0
+    /// Extra room before the dots, to clear heads of other voices at the same onset.
+    var dotExtra = 0.0
+    /// Vertical shift of a rest in multi-voice measures, in staff spaces.
+    var restDY = 0.0
+    /// Left edge (relative to the column) of the leftmost head at this onset over all voices.
+    var leftEdge: Double?
+    /// Index into the staff-measure's beams.
+    var beamIndex: Int?
 
     var size: Double { Glyph.standardSize * scale }
     var headWidth: Double { head.metrics.advance * scale }
     /// Centres wide heads (whole notes) on the column like a standard head.
-    var baseDX: Double { isRest ? 0 : -(headWidth - Glyph.noteheadBlack.metrics.advance * scale) / 2 }
+    var baseDX: Double { isRest ? 0 : -(headWidth - Glyph.noteheadBlack.metrics.advance * scale) / 2 + voiceDX }
     var accTotal: Double { accColW.reduce(0, +) }
     var hasAccidental: Bool { notes.contains { $0.acc != nil } }
     var dotsWidth: Double { dots > 0 ? 0.4 + 0.55 * Double(dots) : 0 }
 
     /// Extent to the left of the column's x: accidentals and left-flipped heads.
     var leftW: Double {
-        let minX = baseDX + (notes.map(\.dx).min() ?? 0)
+        let minX = leftEdge.map { min($0, baseDX + (notes.map(\.dx).min() ?? 0)) } ?? (baseDX + (notes.map(\.dx).min() ?? 0))
         return accTotal + (hasAccidental ? 0.2 * scale : 0) + max(0, -minX)
     }
     /// Extent to the right of the column's x: heads, flipped heads and dots.
     var rightW: Double {
         if isRest { return Glyph.rest(value).metrics.advance + dotsWidth }
         let maxDX = notes.map(\.dx).max() ?? 0
-        return baseDX + maxDX + headWidth + dotsWidth
+        return baseDX + maxDX + headWidth + dotsWidth + (dots > 0 ? dotExtra : 0)
     }
     /// Room a grace group takes before its column.
     var graceWidth: Double { leftW + rightW + 0.45 * scale }
@@ -121,8 +139,34 @@ extension Glyph {
     }
 }
 
+/// One drawn beam line: members `from...to` (indices into `BeamGroup.members`); a single member
+/// is a hook, `forward` pointing right.
+struct BeamSegment {
+    var level: Int
+    var from: Int
+    var to: Int
+    var forward = true
+}
+
+struct BeamGroup {
+    /// Indices into the staff-measure's groups, in time order.
+    var members: [Int]
+    var segments: [BeamSegment]
+    var stemUp: Bool
+    var maxLevel: Int
+}
+
+struct TupletSpan {
+    var members: [Int]
+    var number: Int
+    var bracket: Bool
+    var above: Bool
+}
+
 struct SlotMeasure {
     var groups: [Group] = []
+    var beams: [BeamGroup] = []
+    var tuplets: [TupletSpan] = []
     /// The clef in effect at the start of the measure (after any onset-0 change).
     var clef = Clef(sign: "G", line: 2, octaveChange: 0)
     /// A clef change at onset 0 (drawn small when the measure is not first on its system).

@@ -102,6 +102,8 @@ for (i, sys) in layout.systems.enumerated() {
         case .text(let s, let p, let st):
             let anchor = ["start", "middle", "end"][[TextStyle.Anchor.start, .middle, .end].firstIndex(of: st.anchor)!]
             out += "<text class=\"t\" x=\"\(n(p.x))\" y=\"\(n(p.y))\" font-size=\"\(n(st.size))\" text-anchor=\"\(anchor)\"\(st.italic ? " font-style=\"italic\"" : "")\(st.bold ? " font-weight=\"bold\"" : "")>\(esc(s))</text>\n"
+        case .beam(let els, let bid):
+            out += "<path d=\"\(pathData(els))\" fill=\"black\" data-beam=\"\(bid.value)\"/>\n"
         case .path(let els, let stroke, let fill, let id, let gid):
             out += "<path d=\"\(pathData(els))\" fill=\"\(fill ? "black" : "none")\"\(stroke.map { " stroke=\"black\" stroke-width=\"\(n($0))\"" } ?? "")\(attr(id, gid))/>\n"
         }

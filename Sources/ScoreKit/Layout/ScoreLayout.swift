@@ -52,6 +52,14 @@ public struct LayoutOptions: Sendable, Equatable {
     public static let singleLine = LayoutOptions(width: .singleLine)
 }
 
+/// Identifies a beam: it joins several groups, so it has an identity of its own.
+/// `ScoreLayout.beams[id]` lists the groups it joins.
+public struct BeamID: Sendable, Hashable, Comparable {
+    public let value: Int
+    public init(_ value: Int) { self.value = value }
+    public static func < (a: BeamID, b: BeamID) -> Bool { a.value < b.value }
+}
+
 /// A drawn element, in layout coordinates (staff spaces, y down).
 ///
 /// Colouring: an item with a `noteID` belongs to that one note (its head, accidental, dots,
@@ -60,6 +68,16 @@ public struct LayoutOptions: Sendable, Equatable {
 /// later flags and beams); `ScoreLayout.groups[groupID]` lists the member notes, and the
 /// renderer picks the policy (the suggested one: the first marked member's colour, else the
 /// default). Furniture (clefs, barlines, staff lines) has neither.
+///
+/// Beams: a beam joins several groups, so it belongs to none of them. Each beam segment is a
+/// `.beam` item carrying a `BeamID`, and `ScoreLayout.beams[id]` lists the member groups. The
+/// renderer decides the colour; the suggested policy is plain ink.
+/// Flags belong to their group (`groupID` is the group id, no `noteID`). Tuplet numbers and
+/// brackets have neither id and are drawn in ink.
+/// Shared heads: when two voices share one notehead (a unison of the same value), only the
+/// first note draws it (head, accidental and dots); the other note's `LaidNote.headBox` is the
+/// same box and `ScoreLayout.sharedHeads[second] = first`. Colour the single head by either
+/// note's mark.
 public enum LayoutItem: Sendable, Hashable {
     /// A SMuFL glyph with its origin (baseline-left) at `position`; `size` is the em in
     /// staff spaces (nil is the standard 4).
@@ -72,6 +90,8 @@ public enum LayoutItem: Sendable, Hashable {
     /// A path, stroked when `stroke` is a thickness and filled when `fill` is true: beams are
     /// filled polygons, ties and slurs are filled bezier crescents or stroked curves.
     case path([PathElement], stroke: Double? = nil, fill: Bool = false, noteID: NoteID? = nil, groupID: NoteID? = nil)
+    /// One filled beam segment (a polygon) of the beam `beamID`.
+    case beam([PathElement], beamID: BeamID)
 
     /// The same item moved down by `dy`.
     public func translated(dy: Double) -> LayoutItem {
@@ -81,20 +101,25 @@ public enum LayoutItem: Sendable, Hashable {
         case .rect(let r, let n, let g): .rect(r.offsetBy(dx: 0, dy: dy), noteID: n, groupID: g)
         case .text(let s, let p, let st): .text(s, position: p.offset(dy: dy), style: st)
         case .path(let els, let st, let f, let n, let g): .path(els.map { $0.translated(dy: dy) }, stroke: st, fill: f, noteID: n, groupID: g)
+        case .beam(let els, let id): .beam(els.map { $0.translated(dy: dy) }, beamID: id)
         }
     }
 
     public var noteID: NoteID? {
         switch self {
         case .glyph(_, _, _, let n, _), .line(_, _, _, let n, _), .rect(_, let n, _), .path(_, _, _, let n, _): n
-        case .text: nil
+        case .text, .beam: nil
         }
+    }
+
+    public var beamID: BeamID? {
+        if case .beam(_, let id) = self { id } else { nil }
     }
 
     public var groupID: NoteID? {
         switch self {
         case .glyph(_, _, _, _, let g), .line(_, _, _, _, let g), .rect(_, _, let g), .path(_, _, _, _, let g): g
-        case .text: nil
+        case .text, .beam: nil
         }
     }
 }
@@ -170,6 +195,10 @@ public struct ScoreLayout: Sendable {
     public var noteBoxes: [NoteID: CGRect]
     /// Group id (the lead note's id) to its member notes, ascending staff position.
     public var groups: [NoteID: [NoteID]]
+    /// Beam id to the groups it joins, in time order.
+    public var beams: [BeamID: [NoteID]]
+    /// A note that shares another note's head (see `LayoutItem`), to that other note.
+    public var sharedHeads: [NoteID: NoteID]
 
     /// The x of a position in a measure, interpolated between the drawn columns and the
     /// measure's bounds (start of the music, closing barline). Nil when the measure was not
