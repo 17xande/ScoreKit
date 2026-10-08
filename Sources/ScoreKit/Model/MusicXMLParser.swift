@@ -110,6 +110,7 @@ struct MusicXMLParser {
         var cursor = Rational.zero
         var furthest = Rational.zero
         var lastOnset = Rational.zero
+        var rightMarks: [Int] = []       // jump marks on the right barline: onset is the measure's end
         var wantsBarLength: [Int] = []   // measure rests without a <duration>
 
         for el in node.children {
@@ -140,6 +141,7 @@ struct MusicXMLParser {
                 furthest = max(furthest, cursor)
             case "direction":
                 let sound = el.child(named: "sound")
+                m.jumpMarks += Self.jumpMarks(in: el, sound: sound, onset: cursor)
                 let text = sound?.attribute("tempo")?.trimmingCharacters(in: .whitespacesAndNewlines)
                 let metro = el.children(named: "direction-type").lazy.compactMap { dt in
                     dt.child(named: "metronome").map(Self.metronome)
@@ -147,20 +149,29 @@ struct MusicXMLParser {
                 if text != nil || metro != nil {
                     m.directions.append(TempoDirection(
                         source: .direction, onset: cursor, offset: try offset(el, state),
+                        offsetSound: el.child(named: "offset")?.trimmedAttribute("sound") == "yes",
+                        soundOffset: try sound.flatMap { try optionalOffset($0, state) },
                         placement: el.trimmedAttribute("placement"), staff: el.child(named: "staff")?.int,
                         soundTempo: text.flatMap(Double.init).flatMap { $0 > 0 ? $0 : nil },
                         soundTempoText: text, metronome: metro))
                 }
             case "sound":
+                m.jumpMarks += Self.jumpMarks(in: el, sound: el, onset: cursor)
                 if let text = el.attribute("tempo")?.trimmingCharacters(in: .whitespacesAndNewlines) {
                     m.directions.append(TempoDirection(
-                        source: .standaloneSound, onset: cursor, offset: try offset(el, state),
+                        source: .standaloneSound, onset: cursor, offset: .zero,
+                        soundOffset: try optionalOffset(el, state),
                         placement: nil, staff: nil,
                         soundTempo: Double(text).flatMap { $0 > 0 ? $0 : nil },
                         soundTempoText: text, metronome: nil))
                 }
             case "barline":
-                m.barlines.append(parseBarline(el, cursor: cursor))
+                let b = parseBarline(el, cursor: cursor)
+                m.barlines.append(b)
+                for mark in Self.barlineMarks(el, at: b.location == .right ? nil : b.onset) {
+                    m.jumpMarks.append(mark)
+                    if b.location == .right { rightMarks.append(m.jumpMarks.count - 1) }
+                }
             default:
                 break
             }
@@ -174,8 +185,15 @@ struct MusicXMLParser {
         }
         m.duration = furthest > .zero ? furthest : (barLength ?? .zero)
         for i in m.barlines.indices where m.barlines[i].location == .right { m.barlines[i].onset = m.duration }
+        for i in rightMarks { m.jumpMarks[i].onset = m.duration }
         m.divisions = state.divisions ?? 0
         return m
+    }
+
+    /// A child `<offset>` in quarters, nil when absent.
+    private func optionalOffset(_ el: XNode, _ state: PartState) throws -> Rational? {
+        guard let o = try wholeNumber(el.child(named: "offset"), cap: Self.maxDuration) else { return nil }
+        return try quarters(o, state, at: el)
     }
 
     /// A child `<offset>` (in divisions) as quarters.
@@ -256,6 +274,42 @@ struct MusicXMLParser {
                          perMinute: bpm.flatMap { $0 > 0 ? $0 : nil }, perMinuteText: text)
     }
 
+    /// Jump marks of a `<direction>` (`el`, with its `<sound>`) or of a bare `<sound>`.
+    private static func jumpMarks(in el: XNode, sound: XNode?, onset: Rational) -> [JumpMark] {
+        var out: [JumpMark] = []
+        if let sound {
+            let table: [(String, JumpMark.Kind)] = [("dacapo", .dacapo), ("dalsegno", .dalsegno), ("segno", .segno),
+                                                    ("coda", .coda), ("tocoda", .toCoda), ("fine", .fine)]
+            for (attr, kind) in table {
+                guard let v = sound.trimmedAttribute(attr), !v.isEmpty, v != "no" else { continue }
+                let flag = kind == .dacapo || kind == .fine
+                out.append(JumpMark(kind: kind, id: flag ? nil : v, onset: onset, source: .sound))
+            }
+        }
+        if el.name == "direction" {
+            for dt in el.children(named: "direction-type") {
+                if dt.child(named: "segno") != nil { out.append(JumpMark(kind: .segno, id: nil, onset: onset, source: .directionType)) }
+                if dt.child(named: "coda") != nil { out.append(JumpMark(kind: .coda, id: nil, onset: onset, source: .directionType)) }
+            }
+        }
+        return out
+    }
+
+    /// `segno`/`coda` attributes (named ids) and child elements (unnamed) of a `<barline>`.
+    /// `at` is nil for a right barline (the caller patches in the measure's end).
+    private static func barlineMarks(_ el: XNode, at onset: Rational?) -> [JumpMark] {
+        var out: [JumpMark] = []
+        for (name, kind) in [("segno", JumpMark.Kind.segno), ("coda", .coda)] {
+            if let v = el.trimmedAttribute(name), !v.isEmpty {
+                out.append(JumpMark(kind: kind, id: v, onset: onset ?? .zero, source: .barline))
+            }
+            if el.child(named: name) != nil {
+                out.append(JumpMark(kind: kind, id: nil, onset: onset ?? .zero, source: .barline))
+            }
+        }
+        return out
+    }
+
     private func parseBarline(_ el: XNode, cursor: Rational) -> Barline {
         let location: Barline.Location = switch el.trimmedAttribute("location") {
         case "left": .left
@@ -291,7 +345,8 @@ struct MusicXMLParser {
     private static func endingNumbers(_ s: String) -> [Int] {
         var out: [Int] = []
         for part in s.split(separator: ",") {
-            let bounds = part.split(separator: "-").compactMap { Int($0.trimmingCharacters(in: .whitespaces)) }
+            // "1." (a label with its full stop) counts as 1.
+            let bounds = part.split(separator: "-").compactMap { Int($0.trimmingCharacters(in: CharacterSet(charactersIn: ". ").union(.whitespaces))) }
             if bounds.count == 2, bounds[0] <= bounds[1], bounds[1] - bounds[0] < 100 { out += Array(bounds[0]...bounds[1]) }
             else if bounds.count == 1 { out.append(bounds[0]) }
         }

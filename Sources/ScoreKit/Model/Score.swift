@@ -100,7 +100,8 @@ public struct Metronome: Sendable, Hashable {
     }
 }
 
-/// A direction or standalone `<sound>` that carries a tempo (other directions are not kept).
+/// A direction or standalone `<sound>` that carries a tempo (other directions are not kept,
+/// except jump marks, see `JumpMark`).
 public struct TempoDirection: Sendable, Hashable {
     public enum Source: Sendable, Hashable {
         /// Inside a `<direction>`.
@@ -111,8 +112,17 @@ public struct TempoDirection: Sendable, Hashable {
     public var source: Source
     /// Cursor position in the measure, in quarters, before `offset`.
     public var onset: Rational
-    /// `<offset>` converted to quarters (0 when absent); the sounding position is `onset + offset`.
+    /// The direction's `<offset>` in quarters (0 when absent). Per the MusicXML spec it moves the
+    /// *sound* only when `offsetSound` is true; otherwise it just moves the printed mark.
     public var offset: Rational
+    /// `<offset sound="yes">`.
+    public var offsetSound = false
+    /// An `<offset>` inside the `<sound>` element itself (quarters): it always moves the sound.
+    public var soundOffset: Rational?
+
+    /// Where the tempo takes effect, per the spec: `<sound><offset>`, else the direction's offset
+    /// when `sound="yes"`, else the cursor position.
+    public var soundPosition: Rational { onset + (soundOffset ?? (offsetSound ? offset : .zero)) }
     public var placement: String?
     public var staff: Int?
     /// `<sound tempo>` as a number when it is a positive number.
@@ -126,6 +136,28 @@ public struct TempoDirection: Sendable, Hashable {
     /// tempo: OSMD lets the metronome win, uses raw per-minute, rounds sound
     /// tempos and substitutes 100 for invalid ones. Reproduce that from the raw fields.
     public var quarterBPM: Double? { soundTempo ?? metronome?.quarterBPM }
+}
+
+/// A navigation mark: `<sound dacapo|dalsegno|segno|coda|tocoda|fine>` or a
+/// `<segno/>` / `<coda/>` direction type. Words such as "D.C. al Fine" are not
+/// interpreted; only the playback attributes are.
+public struct JumpMark: Sendable, Hashable {
+    public enum Kind: Sendable, Hashable { case dacapo, dalsegno, segno, coda, toCoda, fine }
+    public enum Source: Sendable, Hashable {
+        /// A `<sound>` attribute (inside a `<direction>` or directly in the measure).
+        case sound
+        /// A `<segno/>` or `<coda/>` direction type (no playback id).
+        case directionType
+        /// A `segno`/`coda` attribute or child element of a `<barline>`.
+        case barline
+    }
+    public var kind: Kind
+    /// The attribute value naming the target ("segno1"); nil when it is just a flag
+    /// ("yes" on `dacapo`/`fine`, or a direction type).
+    public var id: String?
+    /// Cursor position in the measure, in quarters.
+    public var onset: Rational
+    public var source: Source
 }
 
 public struct Repeat: Sendable, Hashable {
@@ -175,5 +207,7 @@ public struct Measure: Sendable, Equatable {
     public var clefChanges: [ClefChange] = []
     public var barlines: [Barline] = []
     public var directions: [TempoDirection] = []
+    /// D.C./D.S./segno/coda/to coda/fine marks, in document order.
+    public var jumpMarks: [JumpMark] = []
     public var notes: [Note] = []
 }
