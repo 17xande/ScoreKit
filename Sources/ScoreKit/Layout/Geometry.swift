@@ -1,4 +1,7 @@
 import Foundation
+#if canImport(CoreGraphics)
+import CoreGraphics
+#endif
 
 // Layout geometry uses Foundation's CGPoint/CGSize/CGRect (corelibs Foundation on Linux).
 // It is in staff spaces (sp), x right, y down, origin at the top-left of the

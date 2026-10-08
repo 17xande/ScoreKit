@@ -1,4 +1,7 @@
 import Foundation
+#if canImport(CoreGraphics)
+import CoreGraphics
+#endif
 
 /// Lays a `Score` out into systems of pure geometry (staff spaces, y down). No rendering.
 public enum Engraver {

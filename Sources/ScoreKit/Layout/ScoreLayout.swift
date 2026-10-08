@@ -1,4 +1,7 @@
 import Foundation
+#if canImport(CoreGraphics)
+import CoreGraphics
+#endif
 
 /// What to lay out and how. Everything is in staff spaces.
 public struct LayoutOptions: Sendable, Equatable {

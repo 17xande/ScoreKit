@@ -13,6 +13,9 @@
 // licensed under the SIL Open Font License 1.1: see Licenses/OFL-Bravura.txt.
 
 import Foundation
+#if canImport(CoreGraphics)
+import CoreGraphics
+#endif
 
 /// A SMuFL glyph that the engraver uses. The raw value is the Unicode code point.
 /// Metrics are in staff spaces for a font whose em is 4 staff spaces, y up from the

@@ -1,4 +1,7 @@
 import Foundation
+#if canImport(CoreGraphics)
+import CoreGraphics
+#endif
 
 /// A note recorded in staff-local coordinates, converted when the system is assembled.
 struct LocalNote {
