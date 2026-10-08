@@ -1,0 +1,191 @@
+import Foundation
+
+/// What to lay out and how. Everything is in staff spaces.
+public struct LayoutOptions: Sendable, Equatable {
+    public enum Width: Sendable, Equatable {
+        /// Fill systems up to this width, justified.
+        case fixed(Double)
+        /// One system as long as the music needs.
+        case singleLine
+    }
+
+    /// One staff of one part.
+    public struct StaffRef: Sendable, Hashable {
+        public var part: Int
+        /// 1-based staff within the part.
+        public var staff: Int
+        public init(part: Int, staff: Int) { self.part = part; self.staff = staff }
+    }
+
+    public var width: Width
+    public var showFingering: Bool
+    public var showMeasureNumbers: Bool
+    /// Clear space between the staves of a part, bottom line to top line, at least.
+    public var staffDistance: Double
+    /// Clear space between consecutive parts' staves, at least.
+    public var partDistance: Double
+    /// Clear space between systems, at least.
+    public var systemDistance: Double
+    /// Staves to engrave; nil is every staff of every part. Indices are the score's.
+    public var staves: [StaffRef]?
+    /// Key and time changes shown at the end of the system before they take effect.
+    /// Not implemented in S4a (off, and ignored).
+    public var courtesyChanges: Bool
+
+    public init(width: Width = .fixed(80), showFingering: Bool = false, showMeasureNumbers: Bool = true,
+                staffDistance: Double = 7, partDistance: Double = 8, systemDistance: Double = 9,
+                staves: [StaffRef]? = nil, courtesyChanges: Bool = false) {
+        self.width = width
+        self.showFingering = showFingering
+        self.showMeasureNumbers = showMeasureNumbers
+        self.staffDistance = staffDistance
+        self.partDistance = partDistance
+        self.systemDistance = systemDistance
+        self.staves = staves
+        self.courtesyChanges = courtesyChanges
+    }
+
+    public static let `default` = LayoutOptions()
+    public static let singleLine = LayoutOptions(width: .singleLine)
+}
+
+/// A drawn element, in layout coordinates (staff spaces, y down).
+///
+/// Colouring: an item with a `noteID` belongs to that one note (its head, accidental, dots,
+/// fingering and the rest glyph); colour it with that note's colour. An item with a `groupID`
+/// and no `noteID` belongs to a chord or rest as a whole (the stem, shared ledger lines, and
+/// later flags and beams); `ScoreLayout.groups[groupID]` lists the member notes, and the
+/// renderer picks the policy (the suggested one: the first marked member's colour, else the
+/// default). Furniture (clefs, barlines, staff lines) has neither.
+public enum LayoutItem: Sendable, Hashable {
+    /// A SMuFL glyph with its origin (baseline-left) at `position`; `size` is the em in
+    /// staff spaces (nil is the standard 4).
+    case glyph(codepoint: UInt32, position: CGPoint, size: Double? = nil, noteID: NoteID? = nil, groupID: NoteID? = nil)
+    /// A straight stroke of the given thickness (staff lines, stems, barlines, ledger lines).
+    case line(from: CGPoint, to: CGPoint, thickness: Double, noteID: NoteID? = nil, groupID: NoteID? = nil)
+    /// A filled rectangle (thick barlines).
+    case rect(CGRect, noteID: NoteID? = nil, groupID: NoteID? = nil)
+    case text(String, position: CGPoint, style: TextStyle)
+    /// A path, stroked when `stroke` is a thickness and filled when `fill` is true: beams are
+    /// filled polygons, ties and slurs are filled bezier crescents or stroked curves.
+    case path([PathElement], stroke: Double? = nil, fill: Bool = false, noteID: NoteID? = nil, groupID: NoteID? = nil)
+
+    /// The same item moved down by `dy`.
+    public func translated(dy: Double) -> LayoutItem {
+        switch self {
+        case .glyph(let c, let p, let s, let n, let g): .glyph(codepoint: c, position: p.offset(dy: dy), size: s, noteID: n, groupID: g)
+        case .line(let a, let b, let t, let n, let g): .line(from: a.offset(dy: dy), to: b.offset(dy: dy), thickness: t, noteID: n, groupID: g)
+        case .rect(let r, let n, let g): .rect(r.offsetBy(dx: 0, dy: dy), noteID: n, groupID: g)
+        case .text(let s, let p, let st): .text(s, position: p.offset(dy: dy), style: st)
+        case .path(let els, let st, let f, let n, let g): .path(els.map { $0.translated(dy: dy) }, stroke: st, fill: f, noteID: n, groupID: g)
+        }
+    }
+
+    public var noteID: NoteID? {
+        switch self {
+        case .glyph(_, _, _, let n, _), .line(_, _, _, let n, _), .rect(_, let n, _), .path(_, _, _, let n, _): n
+        case .text: nil
+        }
+    }
+
+    public var groupID: NoteID? {
+        switch self {
+        case .glyph(_, _, _, _, let g), .line(_, _, _, _, let g), .rect(_, _, let g), .path(_, _, _, _, let g): g
+        case .text: nil
+        }
+    }
+}
+
+/// One staff row of a system. `top` is the y of its top line; the bottom line is `top + 4`.
+public struct LaidStaff: Sendable, Hashable {
+    public var partIndex: Int
+    /// 1-based staff within the part.
+    public var staffInPart: Int
+    public var top: Double
+    public init(partIndex: Int, staffInPart: Int, top: Double) {
+        self.partIndex = partIndex; self.staffInPart = staffInPart; self.top = top
+    }
+}
+
+/// A shared horizontal position: every staff and part aligns notes starting at `onset` of
+/// measure `measureIndex` to `x`.
+public struct LaidColumn: Sendable, Hashable {
+    public var measureIndex: Int
+    /// Quarter notes into the measure.
+    public var onset: Rational
+    /// The left edge of a standard notehead at this onset.
+    public var x: Double
+}
+
+/// Horizontal extent of one measure on a system.
+public struct LaidMeasure: Sendable, Hashable {
+    public var index: Int
+    /// Length in quarter notes (the longest over the selected parts).
+    public var duration: Rational
+    /// Where the measure begins: just after the previous barline (or the system's left edge).
+    public var x0: Double
+    /// Where the music begins, after clef/key/time and a leading repeat.
+    public var bodyStart: Double
+    /// The right edge of the closing barline.
+    public var barX: Double
+    public var columns: [LaidColumn]
+}
+
+public struct LaidSystem: Sendable {
+    public var frame: CGRect
+    public var staves: [LaidStaff]
+    /// Measure indices (0-based, as in `Part.measures`) on this system.
+    public var measureRange: Range<Int>
+    public var items: [LayoutItem]
+    public var columns: [LaidColumn]
+    public var measures: [LaidMeasure]
+    public var columnXs: [Double] { columns.map(\.x) }
+}
+
+/// Where one note was put. Coordinates are layout coordinates.
+public struct LaidNote: Sendable, Hashable {
+    public var id: NoteID
+    public var systemIndex: Int
+    /// Index into `LaidSystem.staves`.
+    public var staffIndex: Int
+    /// The notehead's bounding box (for a rest, the rest glyph's).
+    public var headBox: CGRect
+    /// Its chord (or rest, or lone note): the lead note's id, see `ScoreLayout.groups`.
+    public var groupID: NoteID
+    /// Where the group's stem ends (the far end from the heads), nil without a stem.
+    public var stemEnd: CGPoint?
+    public var isRest: Bool
+}
+
+/// The result of laying a score out: pure geometry in staff spaces.
+public struct ScoreLayout: Sendable {
+    public var size: CGSize
+    public var systems: [LaidSystem]
+    /// Every drawn note (pitched, unpitched and rest) by id.
+    public var notes: [NoteID: LaidNote]
+    /// Notehead bounding boxes of pitched and unpitched notes, in layout coordinates.
+    public var noteBoxes: [NoteID: CGRect]
+    /// Group id (the lead note's id) to its member notes, ascending staff position.
+    public var groups: [NoteID: [NoteID]]
+
+    /// The x of a position in a measure, interpolated between the drawn columns and the
+    /// measure's bounds (start of the music, closing barline). Nil when the measure was not
+    /// laid out (not selected, or out of range). `position` is quarter notes into the measure
+    /// and is clamped to it.
+    public func x(measureIndex: Int, position: Rational) -> (systemIndex: Int, x: Double)? {
+        for (si, sys) in systems.enumerated() {
+            guard let m = sys.measures.first(where: { $0.index == measureIndex }) else { continue }
+            var anchors: [(Rational, Double)] = m.columns.map { ($0.onset, $0.x) }
+            if anchors.first.map({ $0.0 > .zero }) ?? true { anchors.insert((.zero, m.bodyStart), at: 0) }
+            if anchors.last.map({ $0.0 < m.duration }) ?? true { anchors.append((m.duration, m.barX)) }
+            if position <= anchors[0].0 { return (si, anchors[0].1) }
+            for i in 1..<anchors.count where position <= anchors[i].0 {
+                let (p0, x0) = anchors[i - 1], (p1, x1) = anchors[i]
+                let t = (position - p0).double / (p1 - p0).double
+                return (si, x0 + (x1 - x0) * t)
+            }
+            return (si, anchors[anchors.count - 1].1)
+        }
+        return nil
+    }
+}

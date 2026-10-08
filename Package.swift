@@ -21,6 +21,9 @@ let package = Package(
     targets: [
         .target(name: "ScoreKit", dependencies: ["ZIPFoundation"]),
         .target(name: "ScoreKitUI", dependencies: ["ScoreKit"]),
+        // Debug tool: renders a layout to SVG. An executable target only, deliberately not a
+        // product, so it never reaches the app's dependency graph.
+        .executableTarget(name: "scorekit-svg", dependencies: ["ScoreKit"]),
         .testTarget(
             name: "ScoreKitTests",
             dependencies: ["ScoreKit"],
