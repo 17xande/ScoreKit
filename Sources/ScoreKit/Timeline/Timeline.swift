@@ -49,7 +49,7 @@ public struct TimelineEntry: Sendable, Hashable {
 ///
 /// This mirrors the web app's OSMD walk. Every visible position of any part gives
 /// an entry, rests and parts nobody plays included (such positions have no notes).
-/// Positions that are only invisible (`print-object="no"`, `<forward>`) are skipped;
+/// Positions that are only invisible (`print-object="no"`, `<notehead>none`, `<forward>`) are skipped;
 /// grace notes and zero-duration notes are not reported.
 ///
 /// Ties follow OSMD's reader (open ties are kept per staff, matched by letter and
@@ -136,7 +136,7 @@ public struct Timeline: Sendable {
             for m in part.measures where m.index < n {
                 for note in m.notes where !note.isGrace && note.duration > .zero {
                     var slot = byMeasure[m.index][note.onset] ?? (false, [])
-                    if note.printObject {
+                    if note.printObject, !note.noHead {
                         slot.visible = true
                         if let pitch = note.pitch {
                             let midi = pitch.midi
@@ -196,8 +196,14 @@ public struct Timeline: Sendable {
         for (k, pm) in unroll.measures.enumerated() {
             for (pi, part) in score.parts.enumerated() where pm.index < part.measures.count {
                 let measure = part.measures[pm.index]
-                for note in measure.notes where !note.isGrace && note.duration > .zero && pm.plays(note.onset) {
+                // A tied grace note opens a chain too (OSMD pairs it): the main note it ties into
+                // is then a `continue`, already sounding, and the chain's length stays the main notes'.
+                // In time order, not document order: a later voice's tie start may precede, in time,
+                // an earlier voice's stop (Stanford m1: voice 2 holds E-flat/G into voice 1's chord).
+                let inTime = measure.notes.enumerated().sorted { ($0.element.onset, $0.offset) < ($1.element.onset, $1.offset) }.map(\.element)
+                for note in inTime where (note.isGrace || note.duration > .zero) && pm.plays(note.onset) {
                     guard let pitch = note.pitch else { continue }
+                    let duration = note.isGrace ? Rational.zero : note.duration
                     let stops = note.drawnTieStop || note.drawnTieContinue
                     let starts = note.drawnTieStart || note.drawnTieContinue
                     guard stops || starts else { continue }
@@ -208,19 +214,19 @@ public struct Timeline: Sendable {
                         if let num = find(note, pitch, in: dict) {
                             let c = dict[num]!
                             chainOf[inst] = c
-                            chains[c].total += note.duration
+                            chains[c].total += duration
                             chains[c].touched = k
                         }
                     } else if starts {
                         var num = 1
                         while dict[num] != nil { num += 1 }
-                        chains.append(Chain(first: inst, total: note.duration, touched: k, pitch: pitch))
+                        chains.append(Chain(first: inst, total: duration, touched: k, pitch: pitch))
                         chainOf[inst] = chains.count - 1
                         open[key, default: [:]][num] = chains.count - 1
                     } else if let num = find(note, pitch, in: dict) {
                         let c = dict[num]!
                         chainOf[inst] = c
-                        chains[c].total += note.duration
+                        chains[c].total += duration
                         open[key]![num] = nil
                     }
                 }

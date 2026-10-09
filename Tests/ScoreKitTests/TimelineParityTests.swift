@@ -39,14 +39,25 @@ func walkInputPath(_ name: String) -> String {
     switch name {
     case "bach-prelude-in-c", "minuet-in-g", "ode-to-joy", "twinkle-twinkle": "\(name).musicxml"
     case "ode-to-joy-mxl": "edge/ode-to-joy.mxl"
+    case _ where name.hasPrefix("openscore-"): "complex/openscore/\(name.dropFirst("openscore-".count)).mxl"
+    case _ where name.hasPrefix("lilypond-"): "complex/lilypond/\(name.dropFirst("lilypond-".count)).mxl"
     default: "edge/\(name).musicxml"
     }
 }
 
+/// Scores OSMD cannot walk: their `.walk.json` holds `{source, error}` only. They get no parity
+/// check; ComplexScoreTests still parses, unrolls and lays each out.
+let errorOnlyWalks: Set<String> = [
+    "openscore-grandval-les-clochettes",    // wavy-line trill starting and stopping on one note
+    "lilypond-13a-KeySignatures",           // VexFlow "Bad key signature spec" (theoretical keys)
+    "lilypond-41h-TooManyParts",            // OSMD cannot load it
+]
+
 let walkNames: [String] = {
     let dir = Bundle.module.url(forResource: "walk", withExtension: nil, subdirectory: "Fixtures")!
     let files = (try? FileManager.default.contentsOfDirectory(atPath: dir.path)) ?? []
-    return files.filter { $0.hasSuffix(".walk.json") }.map { String($0.dropLast(".walk.json".count)) }.sorted()
+    return files.filter { $0.hasSuffix(".walk.json") }.map { String($0.dropLast(".walk.json".count)) }
+        .filter { !errorOnlyWalks.contains($0) }.sorted()
 }()
 
 // MARK: Test-only part choice (the web's chooseParts; the app's MusicCore owns the real one)
@@ -109,9 +120,13 @@ enum Mask {
     /// passes over a measure against the walk's first pass over that measure (measures the walk
     /// never plays are skipped), on beat offsets within the pass and notes; not on bpm, occurrence.
     case perMeasureContent
+    /// Everything except each note's `tie` and `quarters` (OSMD pairs some ties wrongly).
+    case ignoringTies
+    /// Only the part choice and the played measure order; beats and notes are not compared.
+    case orderOnly
 }
 
-private func notesMatch(_ mine: [WalkNote], _ w: [WalkFile.Note]) -> Bool {
+private func notesMatch(_ mine: [WalkNote], _ w: [WalkFile.Note], ignoringTies: Bool = false) -> Bool {
     let mine = sorted(mine)
     let theirs = sorted(w.map {
         WalkNote(midi: $0.midi, letter: $0.spelled.letter, acc: $0.spelled.acc, octave: $0.spelled.octave,
@@ -119,8 +134,9 @@ private func notesMatch(_ mine: [WalkNote], _ w: [WalkFile.Note]) -> Bool {
     })
     return mine.count == theirs.count && zip(mine, theirs).allSatisfy { a, b in
         var x = a, y = b
-        let q = near(x.quarters, y.quarters)
+        let q = ignoringTies || near(x.quarters, y.quarters)
         x.quarters = 0; y.quarters = 0
+        if ignoringTies { x.tie = ""; y.tie = "" }
         return q && x == y
     }
 }
@@ -135,6 +151,18 @@ func parityMismatches(_ name: String, mask: Mask = .exact) throws -> [String] {
     }
     if score.parts.map(\.name) != walk.parts.map(\.name) || score.parts.map(\.staves) != walk.parts.map(\.staves) {
         out.append("parts \(score.parts.map { ($0.name, $0.staves) }) != \(walk.parts.map { ($0.name, $0.staves) })")
+    }
+    if mask == .orderOnly {
+        func order<E>(_ es: [E], _ m: (E) -> Int, _ o: (E) -> Int) -> [Int] {
+            var seq: [Int] = []
+            var last = -1
+            for e in es where o(e) != last { seq.append(m(e)); last = o(e) }
+            return seq
+        }
+        if order(timeline.entries, { $0.measure }, { $0.occurrence }) != order(walk.entries, { $0.measure }, { $0.occurrence }) {
+            out.append("played measure order differs")
+        }
+        return out
     }
     if mask == .perMeasureContent {
         func groups<E>(_ es: [E], _ occ: (E) -> Int) -> [[E]] {
@@ -167,7 +195,7 @@ func parityMismatches(_ name: String, mask: Mask = .exact) throws -> [String] {
         if e.occurrence != w.occurrence { out.append("\(tag): occurrence \(e.occurrence) != \(w.occurrence)") }
         if !near(e.beat, w.beat) { out.append("\(tag): beat \(e.beat)") }
         if mask != .ignoringBPM, !near(e.bpm, w.bpm) { out.append("\(tag): bpm \(e.bpm) != \(w.bpm)") }
-        if !notesMatch(walkNotes(e, chosen: chosen), w.notes) { out.append("\(tag): notes differ") }
+        if !notesMatch(walkNotes(e, chosen: chosen), w.notes, ignoringTies: mask == .ignoringTies) { out.append("\(tag): notes differ") }
     }
     return out
 }
@@ -177,11 +205,16 @@ let divergences: [String: (reason: String, mask: Mask)] = [
     "repeat-times-3": ("OSMD ignores repeat times (plays 2 passes); ScoreKit plays 3", .perMeasureContent),
     "ending-multi-number": ("OSMD keeps the first digit of number=\"1, 2\"; ScoreKit treats it as endings 1 and 2", .perMeasureContent),
     "ending-text-differs": ("OSMD reads the ending's text instead of its number, and drops measures when the text has no digit", .perMeasureContent),
-    "ending-text-digits-swapped": ("OSMD lets the text override the number; ScoreKit follows the number attribute", .perMeasureContent),
+    "ending-text-digits-swapped": ("OSMD 2.2.0 lets the text override the number and plays 1 2 1 2 3 4; the intended order is 1 2 1 3 4, which ScoreKit plays from the number attribute", .perMeasureContent),
     "ending-print-object-no": ("OSMD skips endings with print-object=\"no\" entirely; ScoreKit plays them (it only hides the bracket)", .perMeasureContent),
-    "tempo-offset": ("Two OSMD bugs: it never applies a mid-measure tempo that has an <offset>, and it shifts a measure-start tempo by an <offset> that lacks sound=\"yes\" (the spec ignores it); ScoreKit follows the spec", .ignoringBPM),
-    "tempo-offset-mid-measure": ("as tempo-offset", .ignoringBPM),
-    "sound-decimal-tempo": ("OSMD turns an invalid tempo=\"fast\" into 100 and tempo=\"0\" into 60; ScoreKit keeps the current tempo", .ignoringBPM),
+    "lilypond-21d-Chords-SchubertStabatMater": ("OSMD turns the tempo word \"Largo\" into 52 bpm (its table of tempo words); ScoreKit treats words as display only and plays the default 100", .ignoringBPM),
+    "lilypond-45a-SimpleRepeat": ("OSMD ignores repeat times (plays the bar twice); the file says five", .perMeasureContent),
+    "lilypond-45c-SimpleRepeat-Nested": ("OSMD ignores repeat times and then repeats the wrong bars (1-3 2-7 4-8); intended 1, 2-3 five times, 4-8", .perMeasureContent),
+    "lilypond-45d-Repeats-MultipleEndings": ("OSMD keeps only the first digit of \"3, 5, 7\" and lets the text of ending 4, 6 override its number, so most endings are lost (1-2 1-2 1-2 1 11-12); intended eight passes", .perMeasureContent),
+    "openscore-satie-je-te-veux": ("OSMD plays 1-78 6-35 38-110 (endings 2 and 3 on the first pass); intended is 1-37 47-78 6-35 38-39 79-110 6-35 40-46", .perMeasureContent),
+    "openscore-stanford-sou-wester": ("OSMD joins the voice 2 tie start of bar 1 to the voice 1 stop of bar 3 instead of the stop in the same bar (its tie dictionary is never cleared); ScoreKit pairs them in time order", .ignoringTies),
+    "openscore-boulanger-parfois-je-suis-triste": ("OSMD adds an empty position and 0.375 quarters to the bar after a grace chord and a notehead-less 32nd (beats drift from there on), and drops the tie of two chord notes between bars 51 and 52; ScoreKit has neither", .orderOnly),
+    "sound-decimal-tempo": ("OSMD turns an invalid tempo=\"fast\" into 100 (and its walk reports 0 for \"0\", which the web's score layer ignores); ScoreKit keeps the current tempo for both", .ignoringBPM),
 ]
 // Deliberate improvement that no listed fixture shows: ties are resolved over the played order
 // (a tie out of a measure joins only the measure played next), where OSMD resolves them in score order.
@@ -203,7 +236,7 @@ func divergencesStillDiffer(name: String) throws {
 
 @Test("every walk fixture is either checked for parity or a listed divergence")
 func fixtureCount() {
-    #expect(walkNames.count == 41)
+    #expect(walkNames.count == 63)
     #expect(Set(divergences.keys).isSubset(of: Set(walkNames)))
 }
 
@@ -232,28 +265,15 @@ struct DivergentTimelineTests {
     @Test func hiddenEndingsStillPlay() throws {
         #expect(try measures("ending-print-object-no") == [1, 2, 1, 3, 4])
     }
-    @Test func tempoOffsetsApplyWhereWritten() throws {
-        // The directions' <offset>s have no sound="yes", so by the spec they only move the printed
-        // mark: 60 from beat 2 (m1), 60 again from beat 4 (m2), 90 from beat 8 (m3). OSMD loses
-        // the m1 tempo and delays the other two.
-        let (_, t, _) = try loadTimeline("tempo-offset")
-        for e in t.entries {
-            let want = e.beat < 2 ? 120.0 : e.beat < 8 ? 60.0 : 90.0
-            #expect(near(e.bpm, want), "beat \(e.beat): \(e.bpm)")
-        }
-        #expect(t.entries.contains { near($0.beat, 4) && near($0.bpm, 60) })
-    }
-    @Test func tempoOffsetsMidMeasureApplyToo() throws {
-        // m2: the direction follows four eighths (2 quarters): beat 6; m3: beat 10 (offsets ignored).
-        let (_, t, _) = try loadTimeline("tempo-offset-mid-measure")
-        for e in t.entries {
-            let want = e.beat < 6 ? 120.0 : e.beat < 10 ? 60.0 : 90.0
-            #expect(near(e.bpm, want), "beat \(e.beat): \(e.bpm)")
-        }
+    @Test func soundTempoWinsOverMetronome() throws {
+        // <metronome> quarter=80 with <sound tempo="120"> in one direction: the sound tempo plays
+        // (MusicXML spec, OSMD 2.2.0); ScoreKit's display value keeps the metronome mark.
+        let (_, t, _) = try loadTimeline("sound-and-metronome-differ")
+        #expect(t.entries.allSatisfy { near($0.bpm, 120) })
     }
     @Test func invalidTemposKeepTheCurrentTempo() throws {
         let (_, t, _) = try loadTimeline("sound-decimal-tempo")
-        // 92.5 rounds to 93; "fast" is ignored; 92.4 rounds to 92; "0" is ignored.
+        // 92.5 rounds to 93; "fast" is ignored (OSMD: 100); 92.4 rounds to 92; "0" is ignored (as the web's score layer does).
         let bpmByMeasure = Dictionary(grouping: t.entries, by: \.measure).mapValues { Set($0.map(\.bpm)) }
         #expect(bpmByMeasure == [1: [93], 2: [93], 3: [92], 4: [92]])
     }

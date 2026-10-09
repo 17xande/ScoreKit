@@ -194,12 +194,22 @@ public struct Unroll: Sendable {
         var jumped = false
         var viaRepeat = false
         var from = Rational.zero
+        // A repeat nested inside an ending (forward and backward both within the same bracket)
+        // is its own small loop: it leaves the enclosing section's pass and start alone.
+        var innerStart: Int?
+        var innerPass = 1
+        func isInner(forwardAt f: Int) -> Bool {
+            guard let r = regionHolding[f], let b = backward.keys.filter({ $0 >= f }).min() else { return false }
+            return b <= r.end && !forward.contains(where: { $0 > f && $0 <= b })
+        }
         while i < n, played.count < maxPlayed {
             if let r = regionStarting[i] {
                 let plays = jumped ? r.numbers.contains(groupMax[r.group] ?? 1) : r.numbers.contains(pass)
                 if !plays { i = r.end + 1; from = .zero; continue }
             }
-            if !jumped, !viaRepeat, forward.contains(i) { repeatStart = i; pass = 1 }
+            if !jumped, !viaRepeat, forward.contains(i) {
+                if isInner(forwardAt: i) { innerStart = i; innerPass = 1 } else { repeatStart = i; pass = 1 }
+            }
             viaRepeat = false
             let here = marks[i]
             // After a jump, a Fine ends playback and a To Coda leaves for the coda.
@@ -214,7 +224,16 @@ public struct Unroll: Sendable {
             from = .zero
 
             var tookRepeat = false
-            if !jumped, let entry = backward[i] {
+            if !jumped, let entry = backward[i], let from0 = innerStart, regionHolding[from0]?.end ?? -1 >= i {
+                if innerPass < max(entry ?? 2, 1) {
+                    innerPass += 1
+                    i = from0
+                    viaRepeat = true
+                    continue
+                }
+                innerStart = nil
+                innerPass = 1
+            } else if !jumped, let entry = backward[i] {
                 // As many passes as the highest ending number of any volta group in the section.
                 let endings = regions.filter { $0.start >= repeatStart && $0.start <= i }
                     .map { groupMax[$0.group] ?? 1 }.max() ?? 0

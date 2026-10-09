@@ -190,8 +190,8 @@ public struct TempoDirection: Sendable, Hashable {
 
     /// The musically correct tempo in quarters per minute (`<sound>` wins, else the
     /// metronome with its beat unit and dots applied). This is NOT OSMD's playback
-    /// tempo: OSMD lets the metronome win, uses raw per-minute, rounds sound
-    /// tempos and substitutes 100 for invalid ones. Reproduce that from the raw fields.
+    /// tempo (`TempoMap`): that uses the raw per-minute of a metronome mark, ignoring its
+    /// beat unit and dots, and rounds sound tempos. Use this for display only.
     public var quarterBPM: Double? { soundTempo ?? metronome?.quarterBPM }
 }
 

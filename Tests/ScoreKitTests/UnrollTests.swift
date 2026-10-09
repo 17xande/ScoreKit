@@ -139,7 +139,7 @@ func positions() throws {
     #expect(g.entries.allSatisfy { $0.notes.allSatisfy { $0.quarters > 0 } })
 }
 
-@Test("tempo: metronome beats sound, raw per-minute, rounding, standalone sound only in measure 0")
+@Test("tempo: sound beats metronome, raw metronome per-minute, rounding, standalone sound only in measure 0")
 func tempoRules() throws {
     func bpms(_ name: String) throws -> [Double] {
         let t = Timeline(score: try Score.load(data: fixture("edge/\(name).musicxml")))
@@ -147,7 +147,7 @@ func tempoRules() throws {
         for e in t.entries where out.last != e.bpm { out.append(e.bpm) }
         return out
     }
-    #expect(try bpms("sound-and-metronome-differ") == [80])
+    #expect(try bpms("sound-and-metronome-differ") == [120])
     #expect(try bpms("metronome-half-note") == [60, 40, 120])
     #expect(try bpms("standalone-sound-later") == [120])
     #expect(try bpms("no-tempo") == [100])

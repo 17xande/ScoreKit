@@ -12,17 +12,17 @@ public struct TempoEvent: Sendable, Hashable {
 /// The tempo marks of a score, by measure index.
 ///
 /// Reading follows OSMD (the web app):
-/// - a `<metronome>` mark wins over `<sound tempo>` in the same direction, and
-///   its raw `per-minute` is the tempo: the beat unit and dots are ignored;
-/// - a `<sound tempo>` is rounded to a whole number;
+/// - a `<sound tempo>` wins over a `<metronome>` mark in the same direction (MusicXML spec,
+///   OSMD 2.2.0); it is rounded to a whole number;
+/// - a `<metronome>` alone gives its raw `per-minute` as the tempo: the beat unit and dots
+///   are ignored (`Metronome.quarterBPM` is for display only);
 /// - a `<sound>` directly in a measure counts only in measure index 0;
 /// - a tempo applies from its position; with none the tempo is 100.
 ///
 /// Where OSMD is plainly wrong ScoreKit differs (see `TimelineParityTests`):
-/// - an invalid or zero `tempo` is ignored (OSMD resets to 100, or 60 for "0");
-/// - a direction's `<offset>` moves the tempo only with `sound="yes"`, and a
-///   `<sound><offset>` always does (MusicXML spec). OSMD instead shifts a measure-start
-///   tempo by any direction offset and loses a mid-measure one altogether.
+/// - an invalid or zero `tempo` is ignored (OSMD resets "fast" to 100; its walk reports 0 for
+///   "0", which the web's score layer then ignores too).
+/// A direction's `<offset>` is ignored without `sound="yes"`; OSMD 2.2.0 agrees.
 public struct TempoMap: Sendable {
     public static let defaultBPM = 100.0
 
@@ -50,11 +50,7 @@ public struct TempoMap: Sendable {
     /// The tempo a direction sets, nil when it sets none.
     static func bpm(of d: TempoDirection, measureIndex: Int) -> Double? {
         if d.source == .standaloneSound && measureIndex != 0 { return nil }
-        if let pm = d.metronome?.perMinute { return pm }
-        if let t = d.soundTempo {
-            let r = t.rounded()
-            return r >= 1 ? r : nil
-        }
-        return nil
+        if let t = d.soundTempo, t.rounded() >= 1 { return t.rounded() }
+        return d.metronome?.perMinute
     }
 }

@@ -401,6 +401,7 @@ struct MusicXMLParser {
         if let g = el.child(named: "grace") { n.grace = Grace(slash: g.trimmedAttribute("slash") == "yes") }
         n.cue = el.child(named: "cue") != nil || el.child(named: "type")?.trimmedAttribute("size") == "cue"
         n.printObject = el.trimmedAttribute("print-object") != "no"
+        n.noHead = el.child(named: "notehead")?.text.trimmingCharacters(in: .whitespacesAndNewlines) == "none"
         for t in el.children(named: "tie") {
             switch t.trimmedAttribute("type") {
             case "start": n.soundTieStart = true

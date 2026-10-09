@@ -229,3 +229,36 @@ func fixtureInvariants() throws {
         #expect(t.length > .zero)
     }
 }
+
+@Test("unroll: LilyPond 45a/c/d/i repeats play in the intended order")
+func lilypondRepeatOrders() throws {
+    func order(_ n: String) throws -> String { runs(try load("complex/lilypond/\(n).mxl")) }
+    // 45a: bar 1 five times, then bar 2.
+    #expect(try order("45a-SimpleRepeat") == "1,1,1,1,1-2")
+    // 45c: bar 1; bars 2-3 five times; 4-7 (outer repeat times=1: once); 8.
+    #expect(try order("45c-SimpleRepeat-Nested") == "1-3,2-3,2-3,2-3,2-8")
+    // 45d: eight passes of bar 1 + endings 1 | 2 | 3,5,7 | 4,6 | 3,5,7 | 4,6 | 3,5,7 | 8, then bar 12.
+    #expect(try order("45d-Repeats-MultipleEndings") == "1-2,1,3-5,1,6-9,1,10,1,6-9,1,10,1,6-9,1,11-12")
+    // 45i: ending 1 holds a nested repeat of bar 3, ending 2 one of bar 5 (same as OSMD).
+    #expect(try order("45i-Repeats-Nested") == "1-3,3-4,1,5,5-7")
+}
+
+@Test("timeline: ties over grace notes, in time order across voices (OSMD parity and its tie bugs)")
+func tieEdgeCases() throws {
+    // Stanford bar 1: voice 2 holds E-flat/G for 3 beats into voice 1's chord, which stops them.
+    let t = Timeline(score: try load("complex/openscore/stanford-sou-wester.mxl"))
+    let first = try #require(t.entries.first { $0.notes.contains { $0.midi == 51 } })
+    #expect(first.notes.filter { $0.midi == 51 }.allSatisfy { $0.tie == .start && near($0.quarters, 2) })
+    let stop = try #require(t.entries.filter { $0.notes.contains { $0.midi == 51 } }.dropFirst().first)
+    #expect(stop.notes.filter { $0.midi == 51 }.allSatisfy { $0.tie == .continue })
+    // Bars 51-52 of Boulanger: the 5-note chord tie is whole: E5/C6 start 0.833 and continue.
+    let b = Timeline(score: try load("complex/openscore/boulanger-parfois-je-suis-triste.mxl"))
+    let m51 = try #require(b.entries.last { $0.measure == 51 })
+    #expect(m51.notes.contains { $0.midi == 76 && $0.tie == .start && near($0.quarters, 0.5 + 1.0 / 3) })
+}
+
+@Test("tempo: OSMD maps the word Largo to 52; ScoreKit keeps its default 100 for words")
+func tempoWordsAreDisplayOnly() throws {
+    let t = Timeline(score: try load("complex/lilypond/21d-Chords-SchubertStabatMater.mxl"))
+    #expect(t.entries.allSatisfy { near($0.bpm, TempoMap.defaultBPM) })
+}

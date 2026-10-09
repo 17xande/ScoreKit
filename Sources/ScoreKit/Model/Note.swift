@@ -117,6 +117,9 @@ public struct Note: Sendable, Hashable {
     public var cue = false
     /// False for `print-object="no"`: sounds but isn't drawn.
     public var printObject = true
+    /// True for `<notehead>none</notehead>`: sounds but has no head drawn. OSMD's cursor, like
+    /// `print-object="no"`, skips a position where every note is headless.
+    public var noHead = false
     /// Ties as sounded, from `<tie type>`. Note that OSMD ignores these and
     /// builds ties only from the drawn `<tied>` elements below.
     public var soundTieStart = false
