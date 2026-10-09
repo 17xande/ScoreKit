@@ -34,10 +34,13 @@ public struct LayoutOptions: Sendable, Equatable {
     /// Key and time changes shown at the end of the system before they take effect.
     /// Not implemented in S4a (off, and ignored).
     public var courtesyChanges: Bool
+    /// Leave out the staves of `staves` (or of every part) that have no note at all in the whole
+    /// score, only rests. Staves of one part are kept or dropped independently. Default false.
+    public var hideEmptyStaves: Bool
 
     public init(width: Width = .fixed(80), showFingering: Bool = false, showMeasureNumbers: Bool = true,
                 staffDistance: Double = 7, partDistance: Double = 8, systemDistance: Double = 9,
-                staves: [StaffRef]? = nil, courtesyChanges: Bool = false) {
+                staves: [StaffRef]? = nil, courtesyChanges: Bool = false, hideEmptyStaves: Bool = false) {
         self.width = width
         self.showFingering = showFingering
         self.showMeasureNumbers = showMeasureNumbers
@@ -46,6 +49,21 @@ public struct LayoutOptions: Sendable, Equatable {
         self.systemDistance = systemDistance
         self.staves = staves
         self.courtesyChanges = courtesyChanges
+        self.hideEmptyStaves = hideEmptyStaves
+    }
+
+    /// The staves of the score's piano part(s) (`Score.pianoPartIndices`), all of their staves;
+    /// nil when the score has no piano part.
+    public static func pianoStaves(of score: Score) -> [StaffRef]? {
+        let idx = score.pianoPartIndices
+        guard !idx.isEmpty else { return nil }
+        return idx.flatMap { pi in (1...max(1, score.parts[pi].staves)).map { StaffRef(part: pi, staff: $0) } }
+    }
+
+    /// Restricts `staves` to the score's piano part(s), leaving every other option alone. Does
+    /// nothing when the score has no piano part. Tempo marks of the hidden parts are still drawn.
+    public mutating func restrict(toPianoOf score: Score) {
+        if let p = Self.pianoStaves(of: score) { staves = p }
     }
 
     public static let `default` = LayoutOptions()

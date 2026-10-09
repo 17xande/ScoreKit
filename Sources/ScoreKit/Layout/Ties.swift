@@ -94,16 +94,18 @@ extension Engraving {
         return g.head.metrics.box(at: origin, size: size)
     }
 
-    /// Whether the tie of the note at `ni` of the group curves up. Single voice: opposite to
-    /// the stem, but a chord's outer notes go outward (top up, bottom down) and its inner notes
-    /// go away from the middle line (below it down, above it up; on it, opposite the stem).
-    /// With two voices ties go on the stem side, away from the other voice.
+    /// Whether the tie of the note at `ni` of the group curves up. Single voice: opposite to the
+    /// stem; in a chord the notes split by position: the upper half curve up and the lower half
+    /// down (an odd count leaves the middle note to the usual rule: below the middle line down,
+    /// above it up, on it opposite the stem). With two voices ties go on the stem side, away
+    /// from the other voice.
     static func tieAbove(_ g: Group, _ ni: Int) -> Bool {
         if g.multiVoice { return g.stemUp }
         let n = g.notes.count
         if n > 1 {
-            if ni == n - 1 { return true }
-            if ni == 0 { return false }
+            if ni > n / 2 || (n % 2 == 0 && ni == n / 2) { return true }
+            if ni < n / 2 { return false }
+            // The middle note of an odd chord.
             let p = g.notes[ni].p
             if p > 4 { return true }
             if p < 4 { return false }
@@ -114,7 +116,8 @@ extension Engraving {
     /// The filled crescent of a tie between two points (staff-local), bulging up or down.
     /// `inner` ties (inside a chord) are flatter. Thickness follows Bravura's tie endpoint and
     /// midpoint thicknesses; the height is nudged so the apex stays off the staff lines.
-    static func tiePath(x1: Double, y1: Double, x2: Double, y2: Double, above: Bool, inner: Bool = false) -> [PathElement] {
+    static func tiePath(x1: Double, y1: Double, x2: Double, y2: Double, above: Bool, inner: Bool = false,
+                        height: Double? = nil) -> [PathElement] {
         let len = x2 - x1
         let dir = above ? -1.0 : 1.0
         let end = EngravingDefaults.tieEndpointThickness, mid = EngravingDefaults.tieMidpointThickness
@@ -123,10 +126,11 @@ extension Engraving {
         func onLine(_ y: Double) -> Bool { let r = y.rounded(); return r >= 0 && r <= 4 && abs(y - r) < 0.08 }
         // Keep the apexes (outer and inner edge) off the staff lines: the nearest height that clears them.
         let base = h
-        for d in [0.0, -0.05, 0.05, -0.1, 0.1, -0.15, 0.15, -0.2, 0.2, 0.3] {
+        if height != nil { h = height! }
+        else { for d in [0.0, -0.05, 0.05, -0.1, 0.1, -0.15, 0.15, -0.2, 0.2, 0.3] {
             let c = max(0.25, base + d)
             if !onLine(yAvg + dir * c) && !onLine(yAvg + dir * (c - mid)) { h = c; break }
-        }
+        } }
         // A cubic's midpoint is 3/4 of the way to its controls' offset.
         let kOut = h / 0.75
         let kIn = max(0.05, kOut - (mid - end) / 0.75)
@@ -212,6 +216,27 @@ extension Engraving {
             let c = (x1 + x2) / 2
             return (c - 0.3, c + 0.3)
         }
+        // Ties between the same two chords in the same direction are nested copies of one arc: the
+        // same ends and the same rise, one head spacing apart (so they never cross), the rise
+        // fitted to the outermost.
+        struct Pair: Hashable { var s: Int; var e: Int }
+        var common: [Pair: (x1: Double, x2: Double, h: Double)] = [:]
+        for spec in ties {
+            guard let sr = spec.start.flatMap({ ref[$0] }), let er = spec.end.flatMap({ ref[$0] }),
+                  spec.startMeasure.map(range.contains) ?? false, spec.endMeasure.map(range.contains) ?? false,
+                  sr.pi != er.pi, placed[sr.pi].slotIndex == placed[er.pi].slotIndex else { continue }
+            let above = Self.tieAbove(placed[sr.pi].group, sr.ni)
+            let key = Pair(s: sr.pi, e: er.pi)
+            let x1 = startX(placed[sr.pi], sr.ni, above: above), x2 = endX(placed[er.pi], er.ni, above: above)
+            let h = min(1.2, 0.3 + 0.075 * (x2 - x1))
+            if let c = common[key] { common[key] = (max(c.x1, x1), min(c.x2, x2), min(c.h, h)) } else { common[key] = (x1, x2, h) }
+        }
+        var groupSize: [Pair: Int] = [:]
+        for spec in ties {
+            guard let sr = spec.start.flatMap({ ref[$0] }), let er = spec.end.flatMap({ ref[$0] }) else { continue }
+            let key = Pair(s: sr.pi, e: er.pi)
+            if common[key] != nil { groupSize[key, default: 0] += 1 }
+        }
         for spec in ties {
             let startHere = spec.startMeasure.map(range.contains) ?? false
             let endHere = spec.endMeasure.map(range.contains) ?? false
@@ -226,6 +251,13 @@ extension Engraving {
                 let y1 = tieY(pg, s.ni, above: above)
                 if let e = endRef, endHere, e.pi != s.pi, placed[e.pi].slotIndex == pg.slotIndex {
                     let epg = placed[e.pi]
+                    let key = Pair(s: s.pi, e: e.pi)
+                    if let c = common[key], groupSize[key, default: 0] > 1 {
+                        let (a, b) = span(c.x1, c.x2)
+                        emit(spec, Self.tiePath(x1: a, y1: y1, x2: b, y2: tieY(epg, e.ni, above: above), above: above, inner: inner,
+                                                 height: inner ? min(c.h, min(0.5, 0.3 + 0.03 * (b - a))) : c.h), slot: pg.slotIndex)
+                        continue
+                    }
                     let x2 = endX(epg, e.ni, above: above)
                     let (a, b) = span(x1, x2)
                     emit(spec, Self.tiePath(x1: a, y1: y1, x2: b, y2: tieY(epg, e.ni, above: above), above: above, inner: inner), slot: pg.slotIndex)

@@ -32,6 +32,17 @@ Requires Swift 6 (swift-tools 6.0); iOS 17 / macOS 14.
   ties, barlines, repeats, voltas, brace, fingering, measure numbers, tempo
   marks, and a single-line mode.
 
+## Piano part and the SVG tool
+
+A score with a piano part can be laid out with only that part: `var o = LayoutOptions(width: ...);
+o.restrict(toPianoOf: score)` sets `staves` to the piano part(s) (`LayoutOptions.pianoStaves(of:)`,
+`Score.pianoPartIndices`); a score without one is laid out whole. Tempo marks of the hidden parts
+are still drawn. `hideEmptyStaves` drops staves that hold only rests.
+
+`swift run scorekit-svg score.mxl > out.svg` is a debug tool that renders a layout as SVG. Like the
+app, it shows only the piano part(s) by default: pass `--all-parts` for every part, `--hide-empty`
+to drop empty staves, `--measure N` to crop to the system holding measure N (1-based position).
+
 ## Non-goals
 
 Slurs, dynamics, articulations, lyrics, cross-staff beams, 8va lines, pedal,

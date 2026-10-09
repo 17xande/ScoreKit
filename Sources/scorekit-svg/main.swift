@@ -2,7 +2,8 @@ import Foundation
 import ScoreKit
 
 // Debug tool: lays a MusicXML/.mxl score out and writes the result as SVG to stdout.
-//   swift run scorekit-svg <file.musicxml|.mxl> [--width N | --line] [--font path] [--fingering] [--cursor N] > out.svg
+//   swift run scorekit-svg <file.musicxml|.mxl> [--width N | --line] [--font path] [--measure N] [--all-parts] [--hide-empty] [--fingering] [--cursor N] > out.svg
+// Shows only the piano part(s) of a score that has one (like the app); --all-parts shows every part.
 // Glyphs are <text font-family="Bravura"> using an @font-face for the app's Bravura.otf.
 // 1 staff space = `scale` user units.
 
@@ -15,6 +16,8 @@ func fail(_ msg: String) -> Never {
 
 var path: String?
 var cursorEntry: Int?
+var allParts = false
+var focusMeasure: Int?
 var options = LayoutOptions(width: .fixed(80))
 // Font: --font, else $SCOREKIT_FONT, else no @font-face (the viewer's installed Bravura is used).
 var fontPath: String? = ProcessInfo.processInfo.environment["SCOREKIT_FONT"]
@@ -35,6 +38,12 @@ while !args.isEmpty {
         guard let v = args.first.flatMap(Int.init) else { fail("--cursor needs a timeline entry index") }
         args.removeFirst()
         cursorEntry = v
+    case "--measure":
+        guard let v = args.first.flatMap(Int.init) else { fail("--measure needs a 1-based measure number") }
+        args.removeFirst()
+        focusMeasure = v
+    case "--all-parts": allParts = true
+    case "--hide-empty": options.hideEmptyStaves = true
     case "--fingering": options.showFingering = true
     case "--no-numbers": options.showMeasureNumbers = false
     default:
@@ -43,7 +52,7 @@ while !args.isEmpty {
     }
 }
 guard let path else {
-    fail("usage: scorekit-svg <file.musicxml|.mxl> [--width N | --line] [--font path] [--fingering] [--no-numbers] [--cursor N] > out.svg")
+    fail("usage: scorekit-svg <file.musicxml|.mxl> [--width N | --line] [--font path] [--measure N] [--all-parts] [--hide-empty] [--fingering] [--no-numbers] [--cursor N] > out.svg")
 }
 
 let score: Score
@@ -52,6 +61,8 @@ do {
 } catch {
     fail("cannot load \(path): \(error)")
 }
+// Like the app: only the piano part(s) of a score that has one, unless --all-parts.
+if !allParts { options.restrict(toPianoOf: score) }
 let layout = score.layout(options)
 
 func n(_ v: Double) -> String {
@@ -82,9 +93,16 @@ let fontFace: String = {
     return "@font-face { font-family: \"Bravura\"; src: url(\"\(URL(fileURLWithPath: fontPath).absoluteString)\"); }"
 }()
 
+// --measure N: crop the view to the system that holds measure N.
+var view = CGRect(x: 0, y: 0, width: layout.size.width, height: layout.size.height)
+if let fm = focusMeasure {
+    guard let loc = layout.measureLocations[fm - 1] else { fail("measure \(fm) was not laid out") }
+    let f = layout.systems[loc.systemIndex].frame
+    view = CGRect(x: 0, y: f.minY - 3, width: layout.size.width, height: f.height + 6)
+}
 var out = """
 <?xml version="1.0" encoding="UTF-8"?>
-<svg xmlns="http://www.w3.org/2000/svg" width="\(n(layout.size.width * scale))" height="\(n(layout.size.height * scale))" viewBox="0 0 \(n(layout.size.width)) \(n(layout.size.height))">
+<svg xmlns="http://www.w3.org/2000/svg" width="\(n(view.width * scale))" height="\(n(view.height * scale))" viewBox="\(n(view.minX)) \(n(view.minY)) \(n(view.width)) \(n(view.height))">
 <style>
 \(fontFace)
 text.g { font-family: "Bravura"; font-size: 4px; }

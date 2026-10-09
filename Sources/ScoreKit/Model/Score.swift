@@ -17,6 +17,16 @@ public struct Score: Sendable, Equatable {
     public static func load(data: Data) throws -> Score {
         try parse(xml: ScoreFile.xmlData(from: data))
     }
+
+    /// Indices of the piano parts: every part that `Part.isPiano`; else, when no part says so
+    /// and the score has other parts, the parts that look like a piano (`Part.looksLikeGrandStaff`:
+    /// two staves, G clef above F clef, not named or sounding like a harp, organ, voice or choir).
+    /// A lone grand-staff part already is the whole score. Empty when none.
+    public var pianoPartIndices: [Int] {
+        let named = parts.indices.filter { parts[$0].isPiano }
+        if !named.isEmpty { return named }
+        return parts.count > 1 ? parts.indices.filter { parts[$0].looksLikeGrandStaff } : []
+    }
 }
 
 public struct Part: Sendable, Equatable {
@@ -26,6 +36,51 @@ public struct Part: Sendable, Equatable {
     /// The largest `<staves>` seen (or staff used), at least 1.
     public var staves: Int
     public var measures: [Measure]
+    /// The first `<score-instrument>`'s `<instrument-name>` ("Piano"), nil when absent.
+    public var instrumentName: String?
+    /// The first `<score-instrument>`'s `<instrument-sound>` ("keyboard.piano", "voice.vocals").
+    public var instrumentSound: String?
+    /// The first `<midi-instrument>`'s `<midi-program>` (1-based).
+    public var midiProgram: Int?
+
+    public init(id: String, name: String, abbreviation: String? = nil, staves: Int, measures: [Measure],
+                instrumentName: String? = nil, instrumentSound: String? = nil, midiProgram: Int? = nil) {
+        self.id = id; self.name = name; self.abbreviation = abbreviation; self.staves = staves; self.measures = measures
+        self.instrumentName = instrumentName; self.instrumentSound = instrumentSound; self.midiProgram = midiProgram
+    }
+
+    private static func tokens(_ s: String?) -> Set<String> {
+        Set((s ?? "").lowercased().split { !$0.isLetter }.map(String.init))
+    }
+
+    /// True for a keyboard part, from its `<instrument-sound>` (any `keyboard.*` counts, so
+    /// harpsichord, celesta and clavinet do as well; `keyboard.organ` and accordions do not),
+    /// else from a whole word in its part name, abbreviation or instrument name: piano,
+    /// pianoforte, fortepiano, klavier, clavier, keyboard, pno, pf. A MIDI program 1-8 (the piano
+    /// family) counts only when the part has no name and no instrument information at all.
+    public var isPiano: Bool {
+        if let s = instrumentSound?.lowercased(), s.hasPrefix("keyboard.") {
+            return !s.contains("organ") && !s.contains("accordion")
+        }
+        let words: Set<String> = ["piano", "pianos", "pianoforte", "fortepiano", "klavier", "clavier", "keyboard", "pno", "pf"]
+        let named = Self.tokens(name).union(Self.tokens(abbreviation)).union(Self.tokens(instrumentName))
+        if !words.isDisjoint(with: named) { return true }
+        if named.isEmpty, instrumentSound == nil, let p = midiProgram, (1...8).contains(p) { return true }
+        return false
+    }
+
+    /// A part with two staves, a G clef on the upper and an F clef on the lower one, that is not
+    /// called or sounding like a harp, organ, accordion, voice or choir.
+    public var looksLikeGrandStaff: Bool {
+        guard staves == 2 else { return false }
+        let firstClef = { (staff: Int) in measures.lazy.flatMap(\.clefChanges).first { $0.staff == staff }?.clef.sign }
+        guard firstClef(1) == "G", firstClef(2) == "F" else { return false }
+        let excluded: Set<String> = ["harp", "organ", "accordion", "choir", "chorus", "voice", "vocal", "vocals", "chant",
+                                     "soprano", "alto", "tenor", "bass", "baritone", "marimba", "vibraphone"]
+        let named = Self.tokens(name).union(Self.tokens(abbreviation)).union(Self.tokens(instrumentName))
+            .union(Self.tokens(instrumentSound))
+        return excluded.isDisjoint(with: named)
+    }
 }
 
 /// A clef. One recorded at an onset equal to the measure's duration (a clef

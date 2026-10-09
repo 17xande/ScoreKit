@@ -55,6 +55,8 @@ struct Group {
     var voice = "1"
     /// Rank of the voice among the staff's voices in the measure (0 is the upper one).
     var voiceRank = 0
+    /// Stem direction of the voice when the file gives none (see `engraveVoices`).
+    var voiceDefaultUp = true
     var multiVoice = false
     /// `<stem>none</stem>`: no stem, flag or beam.
     var stemNone = false
@@ -64,6 +66,9 @@ struct Group {
     var dotExtra = 0.0
     /// Vertical shift of a rest in multi-voice measures, in staff spaces.
     var restDY = 0.0
+    /// A rest takes the direction of its voice (up: above the other voices).
+    var restUp = true
+    var restPlaced = false
     /// Left edge (relative to the column) of the leftmost head at this onset over all voices.
     var leftEdge: Double?
     /// Index into the staff-measure's beams.
@@ -86,7 +91,16 @@ struct Group {
     var rightW: Double {
         if isRest { return Glyph.rest(value).metrics.advance + dotsWidth }
         let maxDX = notes.map(\.dx).max() ?? 0
-        return baseDX + maxDX + headWidth + dotsWidth + (dots > 0 ? dotExtra : 0)
+        return max(baseDX + maxDX + headWidth + dotsWidth + (dots > 0 ? dotExtra : 0), flagRight)
+    }
+    /// How far an unbeamed flag reaches right of the column (0 without one).
+    var flagRight: Double {
+        guard beamIndex == nil, !stemNone, !notes.isEmpty, value != .whole, value != .breve,
+              let flag = Glyph.flag(levels: beamLevel(value), up: stemUp) else { return 0 }
+        let m = flag.metrics
+        let a = m.anchor(stemUp ? "stemUpNW" : "stemDownSW", size: scale == 1 ? nil : size) ?? .zero
+        let sx = baseDX + (stemUp ? headWidth : 0)
+        return sx + (m.maxX * scale - a.x) + 0.1
     }
     /// Room a grace group takes before its column.
     var graceWidth: Double { leftW + rightW + 0.45 * scale }

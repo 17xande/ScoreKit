@@ -358,7 +358,8 @@ func bachBass() throws {
     let s = try load("bach-prelude-in-c.musicxml")
     let l = lay(s)
     let m = s.parts[0].measures[0].notes.filter { $0.staff == 2 && !$0.isRest }
-    let up = m.filter { $0.voice == "5" }, down = m.filter { $0.voice == "6" }
+    // Voice 6 (E4) sounds above voice 5 (C4): with no <stem> in the file, the upper one is up.
+    let up = m.filter { $0.voice == "6" }, down = m.filter { $0.voice == "5" }
     #expect(!up.isEmpty && !down.isEmpty)
     #expect(up.allSatisfy { stemUp(l, $0) == true })
     #expect(down.allSatisfy { stemUp(l, $0) == false })
@@ -472,7 +473,7 @@ func restClearsOtherVoice() throws {
     #expect(r2.minY >= low.maxY - 1e-6)
 }
 
-@Test("Bach bass: voice 6's 16th rests sit inside or just at the staff")
+@Test("Bach bass: voice 6's 16th rests sit just above voice 5's C4, at most 2.5 spaces above the staff")
 func bachRestsInStaff() throws {
     let s = try load("bach-prelude-in-c.musicxml")
     let l = lay(s)
@@ -481,7 +482,10 @@ func bachRestsInStaff() throws {
     for r in rests {
         let box = l.notes[r.id]!.headBox
         let top = l.systems[0].staves[1].top
-        #expect(box.minY >= top - 0.6 && box.maxY <= top + 4.6, "rest box \(box.minY - top)...\(box.maxY - top)")
+        // Voice 6 (E4, on a ledger line) is the upper voice, so its rests sit just above the C4 of
+        // voice 5: the glyph's bottom is at most 2.5 spaces above the top line (a 16th rest is
+        // 2.7 tall, so its top reaches about 5 above).
+        #expect(box.maxY >= top - 2.5 && box.minY >= top - 5.5 && box.maxY <= top + 4.6, "rest box \(box.minY - top)...\(box.maxY - top)")
     }
 }
 

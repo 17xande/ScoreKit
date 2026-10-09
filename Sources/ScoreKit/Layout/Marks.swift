@@ -136,9 +136,18 @@ extension Engraving {
         }
 
         // Tempo marks.
+        // Tempo directions apply to the whole score: the first staff's part first, then every
+        // other part's (hidden ones included), skipping a mark already drawn.
+        let others = score.parts.indices.filter { $0 != part }
         for m in range where m < measuresOfPart.count {
             guard let l = lm(m) else { continue }
-            for d in measuresOfPart[m].directions where d.source == .direction {
+            var tempoMarks = measuresOfPart[m].directions
+            for o in others where m < score.parts[o].measures.count {
+                for d in score.parts[o].measures[m].directions {
+                    if let k = tempoMarks.firstIndex(where: { $0.sameMark(d) }) { tempoMarks[k].merge(d) } else { tempoMarks.append(d) }
+                }
+            }
+            for d in tempoMarks where d.source == .direction {
                 let word = TextStyle(size: 2.0, bold: true)
                 let plain = TextStyle(size: 2.0)
                 var width = 0.0
@@ -242,4 +251,26 @@ extension Engraving {
 
 extension String {
     var nilIfEmpty: String? { isEmpty ? nil : self }
+}
+
+
+extension TempoDirection {
+    /// The same printed mark in another part: about the same position (within half a quarter,
+    /// parts disagree on offsets) and the same words, or one of them without words and the same
+    /// metronome. Parts that repeat a mark draw it once.
+    func sameMark(_ o: TempoDirection) -> Bool {
+        guard source == o.source else { return false }
+        let a = onset + offset, b = o.onset + o.offset
+        guard abs((a - b).double) <= 0.5 else { return false }
+        if words == o.words { return metronome == nil || o.metronome == nil || metronome == o.metronome }
+        if words == nil || o.words == nil { return metronome != nil && metronome == o.metronome }
+        return false
+    }
+
+    /// Fills what this copy lacks (words, metronome, sound tempo) from another copy of the mark.
+    mutating func merge(_ o: TempoDirection) {
+        if words == nil { words = o.words }
+        if metronome == nil { metronome = o.metronome }
+        if soundTempo == nil { soundTempo = o.soundTempo; soundTempoText = soundTempoText ?? o.soundTempoText }
+    }
 }

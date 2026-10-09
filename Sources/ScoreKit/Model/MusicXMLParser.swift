@@ -23,6 +23,14 @@ struct MusicXMLParser {
 
     private var nextID = 0
 
+    struct PartInfo {
+        var name: String
+        var abbr: String?
+        var instrumentName: String?
+        var instrumentSound: String?
+        var midiProgram: Int?
+    }
+
     static func parse(root: XNode) throws -> Score {
         guard root.name == "score-partwise" else {
             if root.name == "score-timewise" { throw ScoreKitError.unsupported("score-timewise") }
@@ -31,11 +39,15 @@ struct MusicXMLParser {
         guard let partList = root.child(named: "part-list") else {
             throw ScoreKitError.invalidScore(line: root.line, detail: "missing part-list")
         }
-        var names: [String: (name: String, abbr: String?)] = [:]
+        var names: [String: PartInfo] = [:]
         for sp in partList.children(named: "score-part") {
             guard let id = sp.attribute("id") else { continue }
             let abbr = sp.child(named: "part-abbreviation")?.text
-            names[id] = (sp.child(named: "part-name")?.text ?? "", abbr?.isEmpty == false ? abbr : nil)
+            let inst = sp.child(named: "score-instrument")
+            names[id] = PartInfo(name: sp.child(named: "part-name")?.text ?? "", abbr: abbr?.isEmpty == false ? abbr : nil,
+                                 instrumentName: nonEmpty(inst?.child(named: "instrument-name")?.text),
+                                 instrumentSound: nonEmpty(inst?.child(named: "instrument-sound")?.text),
+                                 midiProgram: sp.child(named: "midi-instrument")?.child(named: "midi-program")?.int)
         }
         var parser = MusicXMLParser()
         let parts = try root.children(named: "part").map { try parser.parsePart($0, names: names) }
@@ -68,7 +80,7 @@ struct MusicXMLParser {
 
     // MARK: Parts and measures
 
-    private mutating func parsePart(_ node: XNode, names: [String: (name: String, abbr: String?)]) throws -> Part {
+    private mutating func parsePart(_ node: XNode, names: [String: PartInfo]) throws -> Part {
         let id = node.attribute("id") ?? ""
         var state = PartState()
         var measures: [Measure] = []
@@ -76,8 +88,10 @@ struct MusicXMLParser {
             measures.append(try parseMeasure(m, index: i, state: &state))
         }
         let usedStaff = measures.flatMap(\.notes).map(\.staff).max() ?? 1
-        return Part(id: id, name: names[id]?.name ?? "", abbreviation: names[id]?.abbr,
-                    staves: max(state.staves, usedStaff), measures: measures)
+        let info = names[id]
+        return Part(id: id, name: info?.name ?? "", abbreviation: info?.abbr,
+                    staves: max(state.staves, usedStaff), measures: measures,
+                    instrumentName: info?.instrumentName, instrumentSound: info?.instrumentSound, midiProgram: info?.midiProgram)
     }
 
     private func bad(_ n: XNode, _ detail: String) -> ScoreKitError {

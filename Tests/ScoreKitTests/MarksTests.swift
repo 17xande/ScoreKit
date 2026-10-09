@@ -553,12 +553,12 @@ func innerChordTies() throws {
         for j in boxes.indices where j > i { #expect(!boxes[i].intersects(boxes[j]), "ties \(i) and \(j) overlap") }
         for h in l.noteBoxes.values { #expect(!boxes[i].intersects(h)) }
     }
-    // Inner ties (E4, G4: below the middle line) are flat.
+    // Inner ties (E4, G4) are flat; the chord splits by position: C4 and E4 curve down, G4 and C5 up.
     let notes = s.parts[0].measures.flatMap(\.notes)
-    for id in [notes[2].id, notes[3].id] {
+    for (id, down) in [(notes[2].id, true), (notes[3].id, false)] {
         let b = pathBounds(try #require(t.first { $0.note == id }).path)
         #expect(b.height < 0.7)
-        #expect(b.midY > l.noteBoxes[id]!.midY)
+        #expect(down ? b.midY > l.noteBoxes[id]!.midY : b.midY < l.noteBoxes[id]!.midY)
     }
 }
 

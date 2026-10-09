@@ -419,15 +419,39 @@ extension Engraving {
         if g.stemUp {
             let a = hm.anchor("stemUpSE", size: size) ?? CGPoint(x: hm.maxX, y: -0.168)
             let sx = x + g.baseDX + a.x - thick / 2
+            let tip = flagClearOfDots(g, x: x, stemX: sx, thickness: thick, yEnd: min(StaffGeometry.y(highest.p) - len, 2), up: true)
             return StemGeometry(x: sx, yStart: StaffGeometry.y(lowest.p) + a.y,
-                                yEnd: min(StaffGeometry.y(highest.p) - len, 2), up: true,
+                                yEnd: tip, up: true,
                                 thickness: thick, attachedTo: lowest.note.id)
         }
         let a = hm.anchor("stemDownNW", size: size) ?? CGPoint(x: 0, y: 0.168)
         let sx = x + g.baseDX + a.x + thick / 2
+        let tip = flagClearOfDots(g, x: x, stemX: sx, thickness: thick, yEnd: max(StaffGeometry.y(lowest.p) + len, 2), up: false)
         return StemGeometry(x: sx, yStart: StaffGeometry.y(highest.p) + a.y,
-                            yEnd: max(StaffGeometry.y(lowest.p) + len, 2), up: false,
+                            yEnd: tip, up: false,
                             thickness: thick, attachedTo: highest.note.id)
+    }
+
+    /// The stem tip of an unbeamed dotted note, lengthened (by quarter spaces) until its flag no
+    /// longer covers the augmentation dots, which sit right of the heads at head height.
+    private func flagClearOfDots(_ g: Group, x: Double, stemX: Double, thickness: Double, yEnd: Double, up: Bool) -> Double {
+        let levels = beamLevel(g.value)
+        guard g.dots > 0, g.beamIndex == nil, levels > 0, let flag = Glyph.flag(levels: levels, up: up) else { return yEnd }
+        let size: Double? = g.scale == 1 ? nil : g.size
+        let a = flag.metrics.anchor(up ? "stemUpNW" : "stemDownSW", size: size) ?? .zero
+        let maxDX = g.notes.map(\.dx).max() ?? 0
+        let dot0 = x + g.baseDX + maxDX + g.headWidth + 0.4 * g.scale + g.dotExtra
+        let dotsRect = Self.dotPositions(g).map { d in
+            CGRect(x: dot0, y: StaffGeometry.y(d.p) - 0.25, width: 0.55 * Double(g.dots) * g.scale, height: 0.5)
+        }
+        var tip = yEnd
+        for _ in 0..<16 {
+            let o = CGPoint(x: stemX - thickness / 2 - a.x, y: tip - a.y)
+            let box = flag.metrics.box(at: o, size: size)
+            if !dotsRect.contains(where: { $0.intersects(box.insetBy(dx: -0.1, dy: -0.2)) }) { break }
+            tip += up ? -0.25 : 0.25
+        }
+        return tip
     }
 
     /// Pass 2: turn a placed group into items.

@@ -26,13 +26,40 @@ extension Engraving {
         for g in gs where !g.grace && !order.contains(g.voice) { order.append(g.voice) }
         if order.allSatisfy({ Int($0) != nil }) { order.sort { Int($0)! < Int($1)! } }
         let multi = order.count > 1
+        // Default direction of each voice when the file has no <stem>. Voice numbers are
+        // arbitrary (1 and 5, 2 and 5, ...), so rank within the staff decides: with two voices the
+        // upper-sounding one is up (equal means: the first in order). With three or more (Gould): the voice lying highest is
+        // up, the lowest down, and a middle voice takes the direction of the outer voice its mean
+        // pitch is nearer to (a tie: by rank).
+        var meanPitch: [String: Double] = [:]
+        for v in order {
+            let ps = gs.filter { !$0.isRest && !$0.grace && $0.voice == v }.flatMap { $0.notes.map(\.p) }
+            if !ps.isEmpty { meanPitch[v] = Double(ps.reduce(0, +)) / Double(ps.count) }
+        }
+        var defaultUp: [String: Bool] = [:]
+        for (r, v) in order.enumerated() { defaultUp[v] = r % 2 == 0 }
+        if order.count == 2, let a = meanPitch[order[0]], let b = meanPitch[order[1]], abs(a - b) > 0.5 {
+            // Two voices: the upper-sounding one is up, whatever its number or order (crossing
+            // voices, means within half a staff step, keep the order rule).
+            defaultUp[order[0]] = a > b; defaultUp[order[1]] = b > a
+        }
+        if order.count >= 3 {
+            let noted = order.filter { meanPitch[$0] != nil }.sorted { meanPitch[$0]! > meanPitch[$1]! }
+            if noted.count >= 3, let hi = noted.first, let lo = noted.last {
+                defaultUp[hi] = true; defaultUp[lo] = false
+                for v in noted.dropFirst().dropLast() {
+                    let dh = meanPitch[hi]! - meanPitch[v]!, dl = meanPitch[v]! - meanPitch[lo]!
+                    if dh != dl { defaultUp[v] = dh < dl }
+                }
+            }
+        }
         for i in gs.indices {
             gs[i].multiVoice = multi && !gs[i].grace
             gs[i].voiceRank = order.firstIndex(of: gs[i].voice) ?? 0
+            gs[i].voiceDefaultUp = defaultUp[gs[i].voice] ?? (gs[i].voiceRank % 2 == 0)
         }
 
-        // Provisional stem directions. In multi-voice staves the direction comes from the voice's
-        // rank (not its number), so voices 5 and 6 behave like 1 and 2.
+        // Provisional stem directions (in multi-voice staves: the file's <stem>, else the voice's default).
         for i in gs.indices where !gs[i].isRest {
             gs[i].stemUp = Self.naturalStemUp(gs[i])
         }
@@ -88,8 +115,38 @@ extension Engraving {
         }
         for i in gs.indices where gs[i].grace && !gs[i].isRest { Self.assignAccidentals([i], &gs) }
 
-        // Rests move out of the way of the other voices.
-        for i in gs.indices where gs[i].isRest && gs[i].multiVoice { gs[i].restDY = Self.restOffset(i, gs) }
+        // Rests: a voice whose notes all go one way (explicit <stem>, or the voice's default
+        // direction) keeps that way for its rests too.
+        var voiceUp: [String: Bool] = [:]
+        for v in order {
+            let ups = gs.indices.filter { !gs[$0].isRest && !gs[$0].grace && !gs[$0].stemNone && gs[$0].voice == v }.map { gs[$0].stemUp }
+            if !ups.isEmpty, ups.allSatisfy({ $0 == ups[0] }) { voiceUp[v] = ups[0] }
+        }
+        // ...except the voice lying above (below) all the others, whose rests go up (down).
+        let mean = meanPitch
+        for i in gs.indices where gs[i].isRest {
+            let v = gs[i].voice
+            var up = voiceUp[v] ?? gs[i].voiceDefaultUp
+            let opposed = voiceUp[v].map { d in voiceUp.contains { $0.key != v && $0.value != d } } ?? false
+            if let m = mean[v], mean.count > 1, !opposed {
+                let others = mean.filter { $0.key != v }.map(\.value)
+                if m > others.max()! { up = true } else if m < others.min()! { up = false }
+            }
+            if mean[v] == nil, let at = order.firstIndex(of: v) {
+                // A voice with no notes on this staff (its notes are on the other one): above the
+                // staff's voices when it comes first, below them when it comes last.
+                let noted = order.indices.filter { mean[order[$0]] != nil }
+                if let lo = noted.first, let hi = noted.last {
+                    if at < lo { up = true } else if at > hi { up = false }
+                }
+            }
+            gs[i].restUp = up
+        }
+
+        // Rests move out of the way of the other voices (the one nearest the staff first).
+        let restOrder = gs.indices.filter { gs[$0].isRest && gs[$0].multiVoice }
+            .sorted { (gs[$0].voiceRank, $0) < (gs[$1].voiceRank, $1) }
+        for i in restOrder { gs[i].restDY = Self.restOffset(i, gs); gs[i].restPlaced = true }
 
         sm.groups = gs
         sm.beams = beams
@@ -101,7 +158,7 @@ extension Engraving {
     /// voice sounding at the same time. The result puts the glyph on whole staff spaces.
     static func restOffset(_ i: Int, _ gs: [Group]) -> Double {
         let g = gs[i]
-        let up = g.voiceRank % 2 == 0
+        let up = g.restUp
         let long = g.value == .whole || g.value == .breve
         let m = Glyph.rest(g.value).metrics
         let base = long ? 1.0 : 2.0
@@ -126,9 +183,43 @@ extension Engraving {
             topY = min(topY, StaffGeometry.y(o.notes.last!.p) - 0.5)
             bottomY = max(bottomY, StaffGeometry.y(o.notes.first!.p) + 0.5)
         }
-        if up, topY.isFinite { centre = min(centre, topY - 0.25 - half) }
-        if !up, bottomY.isFinite { centre = max(centre, bottomY + 0.25 + half) }
-        return (centre - mid).rounded() - base
+        func clearOfHeads(_ c: Double) -> Bool {
+            up ? !topY.isFinite || c + half <= topY - 0.25 + 1e-9 : !bottomY.isFinite || c - half >= bottomY + 0.25 - 1e-9
+        }
+        // Then clear of what stands in the rest's own column: heads, stems and other voices'
+        // rests of the same onset (a stem is as much in the way as a head).
+        let w = Glyph.rest(g.value).metrics.advance
+        var boxes: [CGRect] = []
+        for (j, o) in gs.enumerated() where j != i && !o.grace && o.onset == g.onset && o.voice != g.voice {
+            if o.isRest {
+                guard o.restPlaced else { continue }
+                let om = Glyph.rest(o.value).metrics
+                let oy = ((o.value == .whole || o.value == .breve) ? 1.0 : 2.0) + o.restDY
+                boxes.append(CGRect(x: 0, y: oy - om.maxY, width: om.advance, height: om.maxY - om.minY))
+                continue
+            }
+            let hw = o.headWidth
+            let lo = StaffGeometry.y(o.notes.last!.p), hi = StaffGeometry.y(o.notes.first!.p)
+            boxes.append(CGRect(x: o.baseDX + (o.notes.map(\.dx).min() ?? 0), y: lo - 0.5,
+                                width: (o.notes.map(\.dx).max() ?? 0) - (o.notes.map(\.dx).min() ?? 0) + hw, height: hi - lo + 1))
+            if !o.stemNone, o.value != .whole, o.value != .breve {
+                let len = stemLength * o.scale
+                if o.stemUp { boxes.append(CGRect(x: o.baseDX + hw - 0.1, y: min(lo - len, 2), width: 0.2, height: max(0, lo - min(lo - len, 2)))) }
+                else { boxes.append(CGRect(x: o.baseDX - 0.1, y: hi, width: 0.2, height: max(2, hi + len) - hi)) }
+            }
+            if o.dots > 0 { boxes.append(CGRect(x: o.baseDX + hw + 0.3, y: lo - 0.5, width: 0.4 + 0.55 * Double(o.dots), height: hi - lo + 1)) }
+        }
+        // Nearest whole staff space, then away from the other voices until nothing is in the way.
+        let startOff = (centre - mid).rounded()
+        var off = startOff
+        var cleared = false
+        for _ in 0..<20 {
+            let c = off + mid
+            let r = CGRect(x: 0, y: c - half, width: w, height: 2 * half).insetBy(dx: 0, dy: -0.15)
+            if clearOfHeads(c), !boxes.contains(where: { $0.intersects(r) }) { cleared = true; break }
+            off += up ? -1 : 1
+        }
+        return (cleared ? off : startOff) - base
     }
 
     // MARK: Stems
@@ -142,7 +233,8 @@ extension Engraving {
     static func naturalStemUp(_ g: Group) -> Bool {
         if g.grace { return true }
         if let e = explicitStem(g) { return e }
-        if g.multiVoice { return g.voiceRank % 2 == 0 }
+        // A stemless chord has no stem to place; it keeps the order rule so heads are offset as ever.
+        if g.multiVoice { return g.stemNone ? g.voiceRank % 2 == 0 : g.voiceDefaultUp }
         return farthestUp(g.notes.map(\.p))
     }
 
@@ -159,7 +251,7 @@ extension Engraving {
         if members[0].grace { return true }
         let explicit = members.compactMap(explicitStem)
         if !explicit.isEmpty { return explicit.filter { $0 }.count > explicit.count - explicit.filter { $0 }.count }
-        if members[0].multiVoice { return members[0].voiceRank % 2 == 0 }
+        if members[0].multiVoice { return members[0].voiceDefaultUp }
         return farthestUp(members.flatMap { $0.notes.map(\.p) })
     }
 
@@ -327,10 +419,10 @@ extension Engraving {
         guard ordered.count > 1 else { return }
         for (k, i) in ordered.enumerated() where k > 0 {
             for _ in 0..<6 {
-                guard let j = ordered[..<k].first(where: { clashes(gs[i], gs[$0]) }) else { break }
+                guard let j = ordered[..<k].first(where: { clashes(gs[i], gs[$0]) || stemHits(gs[i], gs[$0]) || stemHits(gs[$0], gs[i]) }) else { break }
                 let a = gs[i], b = gs[j]
                 let opposite = a.stemUp != b.stemUp
-                if opposite && hasSecond(a, b) {
+                if opposite && (hasSecond(a, b) || stemHits(a, b) || stemHits(b, a)) {
                     // The stem-up group moves right.
                     if a.stemUp { gs[i].voiceDX += a.headWidth } else { gs[j].voiceDX += b.headWidth }
                 } else {
@@ -363,6 +455,27 @@ extension Engraving {
         return false
     }
 
+    /// Whether the stem of `a` (as it will be drawn, tip estimated) runs through a head of `b`.
+    private static func stemHits(_ a: Group, _ b: Group) -> Bool {
+        guard !a.stemNone, a.value != .whole, a.value != .breve, !a.notes.isEmpty, !b.notes.isEmpty else { return false }
+        let hw = a.headWidth
+        let top = StaffGeometry.y(a.notes.last!.p), bottom = StaffGeometry.y(a.notes.first!.p)
+        let len = stemLength * a.scale
+        let sx = a.baseDX + (a.stemUp ? hw : 0)
+        let (y0, y1) = a.stemUp ? (min(top - len, 2), bottom) : (top, max(bottom + len, 2))
+        let sharing = canShare(a, b)
+        for y in b.notes where y.sharedWith == nil {
+            if sharing, a.notes.contains(where: { $0.p == y.p }) { continue }   // one shared head
+            let x0 = b.baseDX + y.dx, x1 = x0 + b.headWidth
+            let hy = StaffGeometry.y(y.p)
+            // A stem on the edge of the head it runs past counts too: that is where an up stem
+            // (right edge) or a down stem (left edge) of a crossing voice lies.
+            let lo = x0 + (a.stemUp ? 0.1 : -0.2), hi = x1 - (a.stemUp ? -0.2 : 0.1)
+            if sx > lo, sx < hi, hy + 0.4 > y0, hy - 0.4 < y1 - 0.2 { return true }
+        }
+        return false
+    }
+
     private static func clashes(_ a: Group, _ b: Group) -> Bool {
         let share = canShare(a, b)
         for x in a.notes {
@@ -381,6 +494,19 @@ extension Engraving {
         var entries: [(g: Int, n: Int)] = []
         for i in idxs { for n in gs[i].notes.indices where gs[i].notes[n].acc != nil { entries.append((i, n)) } }
         entries.sort { (gs[$0.g].notes[$0.n].p, $1.g) > (gs[$1.g].notes[$1.n].p, $0.g) }
+        // Gould's order: the highest first, then the lowest, the second highest, the second lowest,
+        // and so on, each into the first column it fits (a seventh or more from what is already
+        // there). That zig-zag keeps a cluster's accidentals compact instead of a long staircase.
+        if entries.count > 2 {
+            var zig: [(g: Int, n: Int)] = []
+            var lo = 0, hi = entries.count - 1
+            var top = true
+            while lo <= hi {
+                if top { zig.append(entries[lo]); lo += 1 } else { zig.append(entries[hi]); hi -= 1 }
+                top.toggle()
+            }
+            entries = zig
+        }
         var cols: [[Int]] = []
         var widths: [Double] = []
         for e in entries {
@@ -414,7 +540,7 @@ extension Engraving {
             guard br || !hideNumber else { return }
             let pitched = members.filter { !gs[$0].isRest }
             let up: Bool
-            if pitched.isEmpty { up = gs[members[0]].voiceRank % 2 == 0 }
+            if pitched.isEmpty { up = gs[members[0]].voiceDefaultUp }
             else { up = pitched.filter { gs[$0].stemUp }.count * 2 >= pitched.count }
             out.append(TupletSpan(members: members, number: hideNumber ? 0 : number, bracket: br, above: up))
         }

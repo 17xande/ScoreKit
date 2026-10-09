@@ -42,6 +42,12 @@ struct Engraving {
         } else {
             for (pi, p) in score.parts.enumerated() { for st in 1...max(1, p.staves) { s.append(Slot(part: pi, staff: st)) } }
         }
+        if options.hideEmptyStaves {
+            let kept = s.filter { slot in
+                score.parts[slot.part].measures.contains { $0.notes.contains { $0.staff == slot.staff && !$0.isRest } }
+            }
+            if !kept.isEmpty { s = kept }
+        }
         slots = s
         measureCount = Set(s.map(\.part)).map { score.parts[$0].measures.count }.max() ?? 0
         ties = Self.pairTies(score, parts: Array(Set(s.map(\.part))).sorted())
