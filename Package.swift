@@ -20,7 +20,8 @@ let package = Package(
     ],
     targets: [
         .target(name: "ScoreKit", dependencies: ["ZIPFoundation"]),
-        .target(name: "ScoreKitUI", dependencies: ["ScoreKit"]),
+        // SwiftUI/CoreText renderer. Bravura.otf and its OFL licence travel as resources.
+        .target(name: "ScoreKitUI", dependencies: ["ScoreKit"], resources: [.copy("Resources")]),
         // Debug tool: renders a layout to SVG. An executable target only, deliberately not a
         // product, so it never reaches the app's dependency graph.
         .executableTarget(name: "scorekit-svg", dependencies: ["ScoreKit"]),
