@@ -33,7 +33,9 @@ extension Engraving {
         // pitch is nearer to (a tie: by rank).
         var meanPitch: [String: Double] = [:]
         for v in order {
-            let ps = gs.filter { !$0.isRest && !$0.grace && $0.voice == v }.flatMap { $0.notes.map(\.p) }
+            // By written pitch, not staff position: a clef change in the measure moves positions.
+            let ps = gs.filter { !$0.isRest && !$0.grace && $0.voice == v }.flatMap { $0.notes.map { n in
+                n.note.pitch.map { StaffGeometry.diatonic($0.step, $0.octave + n.note.displayOctaves) } ?? n.p } }
             if !ps.isEmpty { meanPitch[v] = Double(ps.reduce(0, +)) / Double(ps.count) }
         }
         var defaultUp: [String: Bool] = [:]

@@ -142,6 +142,11 @@ public struct Note: Sendable, Hashable {
     /// `placement` ("above" / "below") of that fingering, when given.
     public var fingeringPlacement: String?
     public var timeModification: TimeModification?
+    /// `<notations><slur>` ends on this note, in document order.
+    public var slurs: [SlurMark] = []
+    /// Where an octave line (`OctaveShift`) draws this note, in octaves from its sounding pitch
+    /// (8va is -1). `pitch` stays the sounding pitch.
+    public var displayOctaves = 0
 
     public var isGrace: Bool { grace != nil }
     public var isRest: Bool { if case .rest = kind { true } else { false } }

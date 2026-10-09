@@ -42,6 +42,11 @@ public struct Part: Sendable, Equatable {
     public var instrumentSound: String?
     /// The first `<midi-instrument>`'s `<midi-program>` (1-based).
     public var midiProgram: Int?
+    /// Octave lines, pedal marks, hairpins and dynamics of the part, with their ends paired up.
+    public var octaveShifts: [OctaveShift] = []
+    public var pedals: [Pedal] = []
+    public var wedges: [Wedge] = []
+    public var dynamics: [Dynamic] = []
 
     public init(id: String, name: String, abbreviation: String? = nil, staves: Int, measures: [Measure],
                 instrumentName: String? = nil, instrumentSound: String? = nil, midiProgram: Int? = nil) {

@@ -52,6 +52,12 @@ fingering0 fingering1 fingering2 fingering3 fingering4 fingering5
 tuplet0 tuplet1 tuplet2 tuplet3 tuplet4 tuplet5 tuplet6 tuplet7 tuplet8 tuplet9
 segno coda
 metNoteWhole metNoteHalfUp metNoteQuarterUp metNote8thUp metNote16thUp metAugmentationDot
+dynamicPiano dynamicMezzo dynamicForte dynamicRinforzando dynamicSforzando dynamicZ dynamicNiente
+dynamicPP dynamicPPP dynamicPPPP dynamicMP dynamicMF dynamicPF dynamicFF dynamicFFF dynamicFFFF
+dynamicFortePiano dynamicForzando dynamicSforzando1 dynamicSforzandoPiano dynamicSforzandoPianissimo
+dynamicSforzato dynamicSforzatoPiano dynamicSforzatoFF dynamicRinforzando1 dynamicRinforzando2
+keyboardPedalPed keyboardPedalUp
+ottavaAlta ottavaBassaVb quindicesimaAlta quindicesimaBassaMb ventiduesimaAlta ventiduesimaBassaMb octaveParensLeft octaveParensRight
 """.split()
 
 def swift_name(n):
@@ -111,7 +117,7 @@ for k in ["staffLineThickness", "stemThickness", "beamThickness", "beamSpacing",
           "thinBarlineThickness", "thickBarlineThickness", "barlineSeparation", "thinThickBarlineSeparation",
           "repeatBarlineDotSeparation", "bracketThickness", "subBracketThickness", "slurEndpointThickness",
           "slurMidpointThickness", "tieEndpointThickness", "tieMidpointThickness", "tupletBracketThickness",
-          "repeatEndingLineThickness"]:
+          "repeatEndingLineThickness", "hairpinThickness", "octaveLineThickness", "pedalLineThickness"]:
     out.append(f"    public static let {k}: Double = {num(e[k])}")
 out.append("}")
 print("\n".join(out))

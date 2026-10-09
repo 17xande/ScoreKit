@@ -86,7 +86,7 @@ extension Engraving {
     /// Where a note's head is, for ties: the placed group and the index into its notes.
     private struct HeadRef { var pi: Int; var ni: Int }
 
-    private func headBox(_ pg: PlacedGroup, _ ni: Int) -> CGRect {
+    func headBox(_ pg: PlacedGroup, _ ni: Int) -> CGRect {
         let g = pg.group
         let size: Double? = g.scale == 1 ? nil : g.size
         let n = g.notes[ni]
@@ -120,7 +120,7 @@ extension Engraving {
                         height: Double? = nil) -> [PathElement] {
         let len = x2 - x1
         let dir = above ? -1.0 : 1.0
-        let end = EngravingDefaults.tieEndpointThickness, mid = EngravingDefaults.tieMidpointThickness
+        let mid = EngravingDefaults.tieMidpointThickness
         var h = inner ? min(0.5, 0.3 + 0.03 * len) : min(1.2, 0.3 + 0.075 * len)
         let yAvg = (y1 + y2) / 2
         func onLine(_ y: Double) -> Bool { let r = y.rounded(); return r >= 0 && r <= 4 && abs(y - r) < 0.08 }
@@ -132,15 +132,25 @@ extension Engraving {
             if !onLine(yAvg + dir * c) && !onLine(yAvg + dir * (c - mid)) { h = c; break }
         } }
         // A cubic's midpoint is 3/4 of the way to its controls' offset.
-        let kOut = h / 0.75
-        let kIn = max(0.05, kOut - (mid - end) / 0.75)
-        let cx1 = x1 + len * 0.28, cx2 = x2 - len * 0.28
+        return crescent(x1: x1, y1: y1, x2: x2, y2: y2, dir: dir, kOut1: h / 0.75, kOut2: h / 0.75, controlFraction: 0.28)
+    }
+
+    /// A tie or slur: a crescent between two points, its outer edge bulging by the controls' offsets
+    /// `kOut1` and `kOut2` (at `controlFraction` and 1 - `controlFraction` of the way along), thickest
+    /// in the middle. `dir` is -1 to bulge up, 1 down.
+    static func crescent(x1: Double, y1: Double, x2: Double, y2: Double, dir: Double, kOut1: Double, kOut2: Double,
+                         controlFraction f: Double, endThickness end: Double = EngravingDefaults.tieEndpointThickness,
+                         midThickness mid: Double = EngravingDefaults.tieMidpointThickness) -> [PathElement] {
+        let len = x2 - x1
+        let kIn1 = max(0.05, kOut1 - (mid - end) / 0.75)
+        let kIn2 = max(0.05, kOut2 - (mid - end) / 0.75)
+        let cx1 = x1 + len * f, cx2 = x2 - len * f
         return [
             .move(CGPoint(x: x1, y: y1)),
-            .curve(to: CGPoint(x: x2, y: y2), control1: CGPoint(x: cx1, y: y1 + dir * kOut), control2: CGPoint(x: cx2, y: y2 + dir * kOut)),
+            .curve(to: CGPoint(x: x2, y: y2), control1: CGPoint(x: cx1, y: y1 + dir * kOut1), control2: CGPoint(x: cx2, y: y2 + dir * kOut2)),
             .line(CGPoint(x: x2, y: y2 - dir * end)),
-            .curve(to: CGPoint(x: x1, y: y1 - dir * end), control1: CGPoint(x: cx2, y: y2 - dir * end + dir * kIn),
-                   control2: CGPoint(x: cx1, y: y1 - dir * end + dir * kIn)),
+            .curve(to: CGPoint(x: x1, y: y1 - dir * end), control1: CGPoint(x: cx2, y: y2 - dir * end + dir * kIn2),
+                   control2: CGPoint(x: cx1, y: y1 - dir * end + dir * kIn1)),
             .close,
         ]
     }

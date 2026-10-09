@@ -3,12 +3,14 @@ import Foundation
 /// Turns a partwise MusicXML element tree into a `Score`.
 struct MusicXMLParser {
     /// What carries over from measure to measure within one part.
-    private struct PartState {
+    struct PartState {
         var divisions: Int?
         var keys: [Int: Key] = [:]      // by staff; 0 = all staves
         var times: [Int: TimeSignature] = [:]
         var clefs: [Int: Clef] = [:]
         var staves = 1
+        /// Octave-shift, pedal, wedge and dynamics directions, paired up when the part ends.
+        var marks: [RawMark] = []
 
         /// The value in effect for a staff: its own, else the one set for all staves.
         func effective<T>(_ table: [Int: T], _ staff: Int) -> T? { table[staff] ?? table[0] }
@@ -89,9 +91,11 @@ struct MusicXMLParser {
         }
         let usedStaff = measures.flatMap(\.notes).map(\.staff).max() ?? 1
         let info = names[id]
-        return Part(id: id, name: info?.name ?? "", abbreviation: info?.abbr,
+        var part = Part(id: id, name: info?.name ?? "", abbreviation: info?.abbr,
                     staves: max(state.staves, usedStaff), measures: measures,
                     instrumentName: info?.instrumentName, instrumentSound: info?.instrumentSound, midiProgram: info?.midiProgram)
+        pairMarks(state.marks, into: &part)
+        return part
     }
 
     private func bad(_ n: XNode, _ detail: String) -> ScoreKitError {
@@ -154,6 +158,7 @@ struct MusicXMLParser {
                 cursor = max(.zero, try add(cursor, q, at: el))
                 furthest = max(furthest, cursor)
             case "direction":
+                state.marks += try rawMarks(el, at: ScorePosition(measure: index, onset: cursor), state: state)
                 let sound = el.child(named: "sound")
                 m.jumpMarks += Self.jumpMarks(in: el, sound: sound, onset: cursor)
                 let text = sound?.attribute("tempo")?.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -209,7 +214,7 @@ struct MusicXMLParser {
     }
 
     /// A child `<offset>` in quarters, nil when absent.
-    private func optionalOffset(_ el: XNode, _ state: PartState) throws -> Rational? {
+    func optionalOffset(_ el: XNode, _ state: PartState) throws -> Rational? {
         guard let o = try wholeNumber(el.child(named: "offset"), cap: Self.maxDuration) else { return nil }
         return quarters(o, state)
     }
@@ -418,6 +423,18 @@ struct MusicXMLParser {
                 case "let-ring": n.drawnTieLetRing = true
                 default: break
                 }
+            }
+            for t in notations.children(named: "slur") {
+                let kind: SlurMark.Kind? = switch t.trimmedAttribute("type") {
+                case "start": .start
+                case "stop": .stop
+                case "continue": .continue
+                default: nil
+                }
+                guard let kind else { continue }
+                let side = t.trimmedAttribute("placement") ?? t.trimmedAttribute("orientation")
+                n.slurs.append(SlurMark(kind: kind, number: t.trimmedAttribute("number").flatMap { Int($0) } ?? 1,
+                                        above: side.flatMap { ["above": true, "over": true, "below": false, "under": false][$0] }))
             }
             for t in notations.children(named: "tuplet") {
                 let kind: TupletMark.Kind? = switch t.trimmedAttribute("type") {

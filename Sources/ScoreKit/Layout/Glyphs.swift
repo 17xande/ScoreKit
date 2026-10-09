@@ -108,6 +108,42 @@ public enum Glyph: UInt32, Sendable, Hashable, CaseIterable {
     case metNote8thUp = 0xECA7
     case metNote16thUp = 0xECA9
     case metAugmentationDot = 0xECB7
+    case dynamicPiano = 0xE520
+    case dynamicMezzo = 0xE521
+    case dynamicForte = 0xE522
+    case dynamicRinforzando = 0xE523
+    case dynamicSforzando = 0xE524
+    case dynamicZ = 0xE525
+    case dynamicNiente = 0xE526
+    case dynamicPP = 0xE52B
+    case dynamicPPP = 0xE52A
+    case dynamicPPPP = 0xE529
+    case dynamicMP = 0xE52C
+    case dynamicMF = 0xE52D
+    case dynamicPF = 0xE52E
+    case dynamicFF = 0xE52F
+    case dynamicFFF = 0xE530
+    case dynamicFFFF = 0xE531
+    case dynamicFortePiano = 0xE534
+    case dynamicForzando = 0xE535
+    case dynamicSforzando1 = 0xE536
+    case dynamicSforzandoPiano = 0xE537
+    case dynamicSforzandoPianissimo = 0xE538
+    case dynamicSforzato = 0xE539
+    case dynamicSforzatoPiano = 0xE53A
+    case dynamicSforzatoFF = 0xE53B
+    case dynamicRinforzando1 = 0xE53C
+    case dynamicRinforzando2 = 0xE53D
+    case keyboardPedalPed = 0xE650
+    case keyboardPedalUp = 0xE655
+    case ottavaAlta = 0xE511
+    case ottavaBassaVb = 0xE51C
+    case quindicesimaAlta = 0xE515
+    case quindicesimaBassaMb = 0xE51D
+    case ventiduesimaAlta = 0xE518
+    case ventiduesimaBassaMb = 0xE51E
+    case octaveParensLeft = 0xE51A
+    case octaveParensRight = 0xE51B
 }
 
 extension Glyph {
@@ -202,6 +238,42 @@ extension Glyph {
         .metNote8thUp: GlyphMetrics(minX: 0.0, minY: -0.564, maxX: 2.132, maxY: 2.784, advance: 2.136, anchors: [:]),
         .metNote16thUp: GlyphMetrics(minX: 0.0, minY: -0.564, maxX: 2.084, maxY: 2.8, advance: 2.088, anchors: [:]),
         .metAugmentationDot: GlyphMetrics(minX: 0.0, minY: -0.2, maxX: 0.4, maxY: 0.2, advance: 0.4, anchors: [:]),
+        .dynamicPiano: GlyphMetrics(minX: -0.356, minY: -0.568, maxX: 1.464, maxY: 1.096, advance: 1.46, anchors: ["opticalCenter": CGPoint(x: 1.22, y: 0.0)]),
+        .dynamicMezzo: GlyphMetrics(minX: -0.08, minY: -0.04, maxX: 1.784, maxY: 1.096, advance: 1.748, anchors: ["opticalCenter": CGPoint(x: 0.872, y: 0.0)]),
+        .dynamicForte: GlyphMetrics(minX: -0.564, minY: -0.608, maxX: 1.456, maxY: 1.776, advance: 1.456, anchors: ["opticalCenter": CGPoint(x: 1.256, y: 0.0)]),
+        .dynamicRinforzando: GlyphMetrics(minX: -0.08, minY: 0.0, maxX: 1.108, maxY: 1.096, advance: 1.108, anchors: ["opticalCenter": CGPoint(x: 0.612, y: 0.0)]),
+        .dynamicSforzando: GlyphMetrics(minX: 0.0, minY: -0.04, maxX: 0.916, maxY: 1.092, advance: 0.916, anchors: ["opticalCenter": CGPoint(x: 0.444, y: 0.0)]),
+        .dynamicZ: GlyphMetrics(minX: -0.12, minY: -0.04, maxX: 0.976, maxY: 1.072, advance: 0.976, anchors: ["opticalCenter": CGPoint(x: 0.5, y: 0.0)]),
+        .dynamicNiente: GlyphMetrics(minX: -0.092, minY: -0.04, maxX: 1.232, maxY: 1.096, advance: 1.232, anchors: ["opticalCenter": CGPoint(x: 0.616, y: 0.0)]),
+        .dynamicPP: GlyphMetrics(minX: -0.328, minY: -0.568, maxX: 2.912, maxY: 1.096, advance: 2.908, anchors: ["opticalCenter": CGPoint(x: 1.708, y: 0.0)]),
+        .dynamicPPP: GlyphMetrics(minX: -0.368, minY: -0.568, maxX: 4.292, maxY: 1.096, advance: 4.288, anchors: ["opticalCenter": CGPoint(x: 2.368, y: 0.0)]),
+        .dynamicPPPP: GlyphMetrics(minX: -0.408, minY: -0.568, maxX: 5.672, maxY: 1.096, advance: 5.668, anchors: ["opticalCenter": CGPoint(x: 3.004, y: 0.0)]),
+        .dynamicMP: GlyphMetrics(minX: -0.08, minY: -0.568, maxX: 3.3, maxY: 1.096, advance: 3.304, anchors: ["opticalCenter": CGPoint(x: 1.848, y: 0.0)]),
+        .dynamicMF: GlyphMetrics(minX: -0.08, minY: -0.66, maxX: 3.272, maxY: 1.724, advance: 3.188, anchors: ["opticalCenter": CGPoint(x: 1.796, y: 0.0)]),
+        .dynamicPF: GlyphMetrics(minX: -0.288, minY: -0.608, maxX: 3.08, maxY: 1.776, advance: 3.08, anchors: ["opticalCenter": CGPoint(x: 1.68, y: 0.0)]),
+        .dynamicFF: GlyphMetrics(minX: -0.54, minY: -0.608, maxX: 2.44, maxY: 1.776, advance: 2.436, anchors: ["opticalCenter": CGPoint(x: 1.852, y: 0.0)]),
+        .dynamicFFF: GlyphMetrics(minX: -0.62, minY: -0.608, maxX: 3.32, maxY: 1.776, advance: 3.324, anchors: ["opticalCenter": CGPoint(x: 2.472, y: 0.0)]),
+        .dynamicFFFF: GlyphMetrics(minX: -0.62, minY: -0.608, maxX: 4.28, maxY: 1.776, advance: 4.28, anchors: ["opticalCenter": CGPoint(x: 2.824, y: 0.0)]),
+        .dynamicFortePiano: GlyphMetrics(minX: -0.564, minY: -0.608, maxX: 2.476, maxY: 1.776, advance: 2.476, anchors: ["opticalCenter": CGPoint(x: 1.5, y: 0.0)]),
+        .dynamicForzando: GlyphMetrics(minX: -0.564, minY: -0.608, maxX: 1.988, maxY: 1.776, advance: 1.988, anchors: ["opticalCenter": CGPoint(x: 1.352, y: 0.0)]),
+        .dynamicSforzando1: GlyphMetrics(minX: 0.0, minY: -0.608, maxX: 2.416, maxY: 1.776, advance: 2.416, anchors: ["opticalCenter": CGPoint(x: 1.3, y: 0.0)]),
+        .dynamicSforzandoPiano: GlyphMetrics(minX: 0.0, minY: -0.608, maxX: 3.38, maxY: 1.776, advance: 3.384, anchors: ["opticalCenter": CGPoint(x: 1.904, y: 0.0)]),
+        .dynamicSforzandoPianissimo: GlyphMetrics(minX: 0.0, minY: -0.608, maxX: 4.796, maxY: 1.776, advance: 4.792, anchors: ["opticalCenter": CGPoint(x: 1.972, y: 0.0)]),
+        .dynamicSforzato: GlyphMetrics(minX: 0.0, minY: -0.608, maxX: 2.932, maxY: 1.776, advance: 2.928, anchors: ["opticalCenter": CGPoint(x: 1.76, y: 0.0)]),
+        .dynamicSforzatoPiano: GlyphMetrics(minX: 0.0, minY: -0.608, maxX: 4.304, maxY: 1.776, advance: 4.3, anchors: ["opticalCenter": CGPoint(x: 1.848, y: 0.0)]),
+        .dynamicSforzatoFF: GlyphMetrics(minX: 0.0, minY: -0.608, maxX: 3.856, maxY: 1.776, advance: 3.856, anchors: ["opticalCenter": CGPoint(x: 2.276, y: 0.0)]),
+        .dynamicRinforzando1: GlyphMetrics(minX: -0.08, minY: -0.608, maxX: 2.5, maxY: 1.776, advance: 2.5, anchors: ["opticalCenter": CGPoint(x: 1.564, y: 0.0)]),
+        .dynamicRinforzando2: GlyphMetrics(minX: -0.08, minY: -0.608, maxX: 2.976, maxY: 1.776, advance: 2.976, anchors: ["opticalCenter": CGPoint(x: 2.084, y: 0.0)]),
+        .keyboardPedalPed: GlyphMetrics(minX: 0.0, minY: -0.032, maxX: 4.076, maxY: 2.22, advance: 4.076, anchors: [:]),
+        .keyboardPedalUp: GlyphMetrics(minX: 0.0, minY: 0.0, maxX: 1.8, maxY: 1.8, advance: 1.8, anchors: [:]),
+        .ottavaAlta: GlyphMetrics(minX: 0.0, minY: -0.04, maxX: 3.54, maxY: 1.852, advance: 3.54, anchors: [:]),
+        .ottavaBassaVb: GlyphMetrics(minX: 0.0, minY: -0.04, maxX: 3.184, maxY: 1.852, advance: 3.184, anchors: [:]),
+        .quindicesimaAlta: GlyphMetrics(minX: 0.0, minY: -0.04, maxX: 5.26, maxY: 1.844, advance: 5.26, anchors: [:]),
+        .quindicesimaBassaMb: GlyphMetrics(minX: 0.0, minY: -0.04, maxX: 4.928, maxY: 1.844, advance: 4.924, anchors: [:]),
+        .ventiduesimaAlta: GlyphMetrics(minX: 0.016, minY: -0.028, maxX: 5.712, maxY: 1.852, advance: 5.712, anchors: [:]),
+        .ventiduesimaBassaMb: GlyphMetrics(minX: 0.016, minY: -0.028, maxX: 5.34, maxY: 1.852, advance: 5.34, anchors: [:]),
+        .octaveParensLeft: GlyphMetrics(minX: 0.0, minY: -0.068, maxX: 0.652, maxY: 1.936, advance: 0.548, anchors: [:]),
+        .octaveParensRight: GlyphMetrics(minX: -0.104, minY: -0.068, maxX: 0.548, maxY: 1.936, advance: 0.548, anchors: [:]),
     ]
 }
 
@@ -226,4 +298,7 @@ public enum EngravingDefaults {
     public static let tieMidpointThickness: Double = 0.22
     public static let tupletBracketThickness: Double = 0.16
     public static let repeatEndingLineThickness: Double = 0.16
+    public static let hairpinThickness: Double = 0.16
+    public static let octaveLineThickness: Double = 0.16
+    public static let pedalLineThickness: Double = 0.16
 }

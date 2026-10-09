@@ -27,7 +27,7 @@ extension TextStyle {
 
 extension PathElement {
     /// Control points and the endpoint (for conservative bounds of straight parts).
-    fileprivate func flattened(from p0: CGPoint) -> [CGPoint] {
+    func flattened(from p0: CGPoint) -> [CGPoint] {
         switch self {
         case .move(let p), .line(let p): return [p]
         case .close: return []

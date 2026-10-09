@@ -28,6 +28,7 @@ struct Engraving {
     /// Ties and volta brackets, planned over the whole score before it is broken into systems.
     let ties: [TieSpec]
     let voltas: [VoltaSpec]
+    let slurs: [SlurSpec]
 
     init(score: Score, options: LayoutOptions) {
         self.score = score
@@ -52,6 +53,7 @@ struct Engraving {
         measureCount = Set(s.map(\.part)).map { score.parts[$0].measures.count }.max() ?? 0
         ties = Self.pairTies(score, parts: Array(Set(s.map(\.part))).sorted())
         voltas = s.first.map { Self.planVoltas(score, part: $0.part) } ?? []
+        slurs = Self.pairSlurs(score, parts: Array(Set(s.map(\.part))).sorted())
     }
 
     // MARK: Run

@@ -191,9 +191,11 @@ extension Engraving {
                 var hn: HeadNote
                 switch n.kind {
                 case .pitched(let pitch):
-                    p = StaffGeometry.position(pitch.step, pitch.octave, clef: clef)
+                    // MusicXML pitches sound; an octave line moves where the head is written.
+                    let written = pitch.octave + n.displayOctaves
+                    p = StaffGeometry.position(pitch.step, written, clef: clef)
                     hn = HeadNote(note: n, p: p)
-                    let idx = StaffGeometry.diatonic(pitch.step, pitch.octave)
+                    let idx = StaffGeometry.diatonic(pitch.step, written)
                     let alter = pitch.semitoneAlter
                     let prev = state[idx] ?? StaffGeometry.keyAlter(fifths: key.fifths, step: pitch.step)
                     let tieStop = n.soundTieStop || n.drawnTieStop

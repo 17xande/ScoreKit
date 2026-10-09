@@ -26,6 +26,15 @@ struct StaffBuffer {
     var beams: [BeamID: [NoteID]] = [:]
     /// Second note of a shared head to the first.
     var shared: [NoteID: NoteID] = [:]
+    /// Notation marks (slurs, dynamics ...) and the range of `items` each one drew.
+    var marks: [(kind: LaidMark.Kind, items: Range<Int>)] = []
+
+    /// Adds the items of one notation mark.
+    mutating func addMark(_ kind: LaidMark.Kind, _ new: [LayoutItem]) {
+        let start = items.count
+        items += new
+        marks.append((kind, start..<items.count))
+    }
 
     mutating func grow(_ r: CGRect) {
         minY = min(minY, r.minY)
@@ -71,6 +80,8 @@ struct PlacedGroup {
     var stem: StemGeometry?
     /// Drawn under a beam: no flag, and the stem is cut to the beam.
     var beamed = false
+    /// The measure it is in (0-based index).
+    var measure = 0
 }
 
 /// What laying out one system produces.
@@ -208,7 +219,7 @@ extension Engraving {
                     }
                     pidx[gi] = placed.count
                     for hn in g.notes { noteTimes[hn.note.id] = NoteTime(measureIndex: mi, onset: g.onset) }
-                    placed.append(PlacedGroup(group: g, x: x, slotIndex: si, stem: stemGeometry(g, x: x)))
+                    placed.append(PlacedGroup(group: g, x: x, slotIndex: si, stem: stemGeometry(g, x: x), measure: mi))
                 }
                 slotMeasures.append(StaffMeasurePlacement(slot: si, pidx: pidx, beams: sm.beams, tuplets: sm.tuplets))
             }
@@ -229,6 +240,7 @@ extension Engraving {
         layoutTies(range: range, placed: placed, measures: measures, laid: laidMeasures, bufs: &bufs)
         var pageLimit: Double?
         if case .fixed(let w) = options.width { pageLimit = w - rightMargin }
+        let crossSlurs = layoutNotation(range: range, measures: measures, laid: laidMeasures, placed: placed, bufs: &bufs)
         layoutOverlays(range: range, measures: measures, laid: laidMeasures, limit: pageLimit, buf: &bufs[0])
         for i in bufs.indices { bufs[i].fitExtent() }
 
@@ -252,12 +264,17 @@ extension Engraving {
         var groups: [NoteID: [NoteID]] = [:]
         var beamMap: [BeamID: [NoteID]] = [:]
         var sharedMap: [NoteID: NoteID] = [:]
+        var laidMarks: [LaidMark] = []
         for (si, t) in tops.enumerated() {
             for i in 0..<5 {
                 items.append(.line(from: CGPoint(x: staffLeft, y: t + Double(i)), to: CGPoint(x: endX, y: t + Double(i)),
                                    thickness: EngravingDefaults.staffLineThickness))
             }
+            let base = items.count
             items += bufs[si].items.map { $0.translated(dy: t) }
+            for m in bufs[si].marks {
+                laidMarks.append(LaidMark(kind: m.kind, staffIndex: si, items: (base + m.items.lowerBound)..<(base + m.items.upperBound)))
+            }
             for n in bufs[si].notes {
                 notes[n.id] = LaidNote(id: n.id, systemIndex: systemIndex, staffIndex: si,
                                        headBox: n.headBox.offsetBy(dx: 0, dy: t), groupID: n.groupID,
@@ -266,6 +283,17 @@ extension Engraving {
             groups.merge(bufs[si].groups) { a, _ in a }
             beamMap.merge(bufs[si].beams) { a, _ in a }
             sharedMap.merge(bufs[si].shared) { a, _ in a }
+        }
+
+        // Slurs between two staves, now that the staves have places.
+        for p in crossSlurs {
+            var q = p
+            q.y1 += tops[p.slot]
+            q.y2 += tops[p.endSlot!]
+            let slurItems = Set(laidMarks.filter { $0.kind == .slur || $0.kind == .crossStaffSlur }.flatMap { Array($0.items) })
+            let item = crossStaffSlurItem(q, items: items, slurItems: slurItems)
+            laidMarks.append(LaidMark(kind: .crossStaffSlur, staffIndex: p.slot, items: items.count..<(items.count + 1)))
+            items.append(item)
         }
 
         // Barlines span all staves of a part.
@@ -310,7 +338,7 @@ extension Engraving {
         let frame = CGRect(x: 0, y: frameTop, width: width, height: frameBottom - frameTop)
         let staves = slots.enumerated().map { LaidStaff(partIndex: $1.part, staffInPart: $1.staff, top: tops[$0]) }
         let system = LaidSystem(frame: frame, staves: staves, measureRange: range, items: items,
-                                columns: laidColumns, measures: laidMeasures)
+                                columns: laidColumns, measures: laidMeasures, marks: laidMarks)
         return SystemResult(system: system, notes: notes, groups: groups, beams: beamMap, sharedHeads: sharedMap,
                             noteTimes: noteTimes)
     }
