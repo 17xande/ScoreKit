@@ -22,6 +22,7 @@ struct WalkFile: Decodable {
     }
     struct Entry: Decodable {
         var measure: Int
+        var printed: Int
         var occurrence: Int
         var beat: Double
         var bpm: Double
@@ -276,5 +277,16 @@ struct DivergentTimelineTests {
         // 92.5 rounds to 93; "fast" is ignored (OSMD: 100); 92.4 rounds to 92; "0" is ignored (as the web's score layer does).
         let bpmByMeasure = Dictionary(grouping: t.entries, by: \.measure).mapValues { Set($0.map(\.bpm)) }
         #expect(bpmByMeasure == [1: [93], 2: [93], 3: [92], 4: [92]])
+    }
+}
+
+@Test("web parity: each walk entry's printed measure number equals Measure.number", arguments: walkNames)
+func printedNumbersMatch(name: String) throws {
+    let (score, _, walk) = try loadTimeline(name)
+    for w in walk.entries {
+        // Known difference: a non-numeric number attribute ("X1" on an implicit measure) stays raw in
+        // ScoreKit; the web derives a counting number (lilypond-46d measure 3: "X1" vs 2).
+        if Int(score.parts[0].measures[w.measure - 1].number) == nil { continue }
+        #expect(score.parts[0].measures[w.measure - 1].number == String(w.printed), "\(name) measure \(w.measure)")
     }
 }
