@@ -237,8 +237,14 @@ func invalid() {
         <note><pitch><step>C</step><octave>4</octave></pitch><duration>4</duration></note>
         </measure></part></score-partwise>
         """)
-    guard case .invalidScore(let l2, _)? = noDivs else { Issue.record("\(String(describing: noDivs))"); return }
-    #expect(l2 == 3)
+    #expect(noDivs == nil)   // a missing <divisions> defaults to 1
+    let badDivs = parseError("""
+        <score-partwise><part-list><score-part id="P1"><part-name>x</part-name></score-part></part-list>
+        <part id="P1"><measure number="1"><attributes><divisions>0</divisions></attributes>
+        </measure></part></score-partwise>
+        """)
+    guard case .invalidScore(let l2, _)? = badDivs else { Issue.record("\(String(describing: badDivs))"); return }
+    #expect(l2 == 2)
     #expect(parseError("not xml") != nil)
 }
 

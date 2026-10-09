@@ -92,9 +92,9 @@ struct MusicXMLParser {
         return Int(d.rounded(.towardZero))
     }
 
-    /// Divisions-to-quarters, failing where no `<divisions>` has been seen.
-    private func quarters(_ divs: Int, _ state: PartState, at n: XNode) throws -> Rational {
-        guard let d = state.divisions else { throw bad(n, "duration before any <divisions>") }
+    /// Divisions-to-quarters; a part with no `<divisions>` yet counts as 1 per quarter.
+    private func quarters(_ divs: Int, _ state: PartState) -> Rational {
+        let d = state.divisions ?? 1   // no <divisions> yet: assume 1, as other readers do
         return Rational(divs, d)
     }
 
@@ -106,7 +106,7 @@ struct MusicXMLParser {
     private mutating func parseMeasure(_ node: XNode, index: Int, state: inout PartState) throws -> Measure {
         var m = Measure(index: index, number: node.trimmedAttribute("number") ?? String(index + 1),
                         implicit: node.trimmedAttribute("implicit") == "yes",
-                        duration: .zero, divisions: state.divisions ?? 0)
+                        duration: .zero, divisions: state.divisions ?? 1)
         var cursor = Rational.zero
         var furthest = Rational.zero
         var lastOnset = Rational.zero
@@ -123,7 +123,7 @@ struct MusicXMLParser {
                 if note.grace == nil {
                     if let d = try wholeNumber(el.child(named: "duration"), cap: Self.maxDuration) {
                         guard d >= 0 else { throw bad(el, "negative <duration>") }
-                        note.duration = try quarters(d, state, at: el)
+                        note.duration = quarters(d, state)
                     } else if case .rest(true, _, _) = note.kind {
                         wantsBarLength.append(m.notes.count)
                     }
@@ -136,7 +136,7 @@ struct MusicXMLParser {
             case "backup", "forward":
                 guard let d = try wholeNumber(el.child(named: "duration"), cap: Self.maxDuration) else { continue }
                 // A negative value moves the other way; the cursor never goes below 0.
-                let q = try quarters(el.name == "backup" ? -d : d, state, at: el)
+                let q = quarters(el.name == "backup" ? -d : d, state)
                 cursor = max(.zero, try add(cursor, q, at: el))
                 furthest = max(furthest, cursor)
             case "direction":
@@ -190,20 +190,20 @@ struct MusicXMLParser {
         m.duration = furthest > .zero ? furthest : (barLength ?? .zero)
         for i in m.barlines.indices where m.barlines[i].location == .right { m.barlines[i].onset = m.duration }
         for i in rightMarks { m.jumpMarks[i].onset = m.duration }
-        m.divisions = state.divisions ?? 0
+        m.divisions = state.divisions ?? 1
         return m
     }
 
     /// A child `<offset>` in quarters, nil when absent.
     private func optionalOffset(_ el: XNode, _ state: PartState) throws -> Rational? {
         guard let o = try wholeNumber(el.child(named: "offset"), cap: Self.maxDuration) else { return nil }
-        return try quarters(o, state, at: el)
+        return quarters(o, state)
     }
 
     /// A child `<offset>` (in divisions) as quarters.
     private func offset(_ el: XNode, _ state: PartState) throws -> Rational {
         guard let o = try wholeNumber(el.child(named: "offset"), cap: Self.maxDuration) else { return .zero }
-        return try quarters(o, state, at: el)
+        return quarters(o, state)
     }
 
     // MARK: Attributes
@@ -219,7 +219,7 @@ struct MusicXMLParser {
         }
         for k in el.children(named: "key") {
             let staff = k.trimmedAttribute("number").flatMap { Int($0) }
-            let fifths = k.child(named: "fifths")?.int
+            let fifths = k.child(named: "fifths")?.int.map { min(max($0, -14), 14) }   // theoretical keys stop at 14
             let key = Key(fifths: fifths ?? 0, mode: Self.nonEmpty(k.child(named: "mode")?.text),
                           nonTraditional: fifths == nil && k.child(named: "key-step") != nil)
             if state.effective(state.keys, staff ?? 0) != key || (staff == nil && state.keys.values.contains { $0 != key }) {

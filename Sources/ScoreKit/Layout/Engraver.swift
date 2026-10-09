@@ -177,17 +177,31 @@ struct Engraving {
             cursor += g.metrics.advance + 0.12
         }
         if let old, old.fifths != 0, !old.nonTraditional {
-            let sameSign = (old.fifths > 0) == (key.fifths > 0) && key.fifths != 0
-            let keep = sameSign ? min(abs(key.fifths), abs(old.fifths)) : 0
-            if abs(old.fifths) > keep {
-                let ps = StaffGeometry.keySignaturePositions(sharps: old.fifths > 0, count: abs(old.fifths), clef: clef)
-                for p in ps[keep...] { put(.accidentalNatural, p) }
+            // Naturals go on the letters the new key signature alters less than the old one:
+            // all of them when the sign changes, and none that stay or gain accidentals.
+            let order = old.fifths > 0 ? StaffGeometry.sharpOrder : StaffGeometry.flatOrder
+            let count = StaffGeometry.keyGlyphCount(old.fifths)
+            let signChanges = key.fifths == 0 || (key.fifths > 0) != (old.fifths > 0)
+            let cancel = (0..<count).filter {
+                signChanges || abs(StaffGeometry.keyAlter(fifths: key.fifths, step: order[$0]))
+                    < abs(StaffGeometry.keyAlter(fifths: old.fifths, step: order[$0]))
+            }
+            if !cancel.isEmpty {
+                let ps = StaffGeometry.keySignaturePositions(sharps: old.fifths > 0, count: count, clef: clef)
+                for i in cancel { put(.accidentalNatural, ps[i]) }
                 if key.fifths != 0 { cursor += 0.3 }
             }
         }
         if key.fifths != 0, !key.nonTraditional {
-            let ps = StaffGeometry.keySignaturePositions(sharps: key.fifths > 0, count: abs(key.fifths), clef: clef)
-            for p in ps { put(key.fifths > 0 ? .accidentalSharp : .accidentalFlat, p) }
+            let ps = StaffGeometry.keySignaturePositions(sharps: key.fifths > 0, count: StaffGeometry.keyGlyphCount(key.fifths), clef: clef)
+            for (i, p) in ps.enumerated() {
+                // Theoretical keys (past 7): every letter keeps its usual place and the first
+                // letters in order (F, C, G... or B, E, A...) are doubled in place, so 10 sharps
+                // is F## C## G## D# A# E# B# (the usual convention; Behind Bars, key signatures).
+                let doubled = i < min(abs(key.fifths), StaffGeometry.maxKeyFifths) - 7
+                put(key.fifths > 0 ? (doubled ? .accidentalDoubleSharp : .accidentalSharp)
+                                   : (doubled ? .accidentalDoubleFlat : .accidentalFlat), p)
+            }
         }
         return (items, max(0, cursor - x - (items.isEmpty ? 0 : 0.12)))
     }

@@ -34,10 +34,10 @@ Requires Swift 6 (swift-tools 6.0); iOS 17 / macOS 14.
 
 ## Non-goals
 
-Slurs, dynamics, articulations, lyrics, tuplet brackets (timing is still
-correct), drawn grace notes, cross-staff beams, 8va lines, D.C./D.S. jumps,
+Slurs, dynamics, articulations, lyrics, cross-staff beams, 8va lines, pedal,
 timewise scores, editing, MIDI/audio output, and pixel parity with any other
-renderer.
+renderer. Tuplets (brackets and numbers) and grace notes are drawn; D.C./D.S./Coda/Fine
+jumps are followed by the timeline.
 
 ## Status
 
@@ -49,6 +49,14 @@ timeline and layout follow.
 `Scripts/make-mxl.sh` regenerates the `.mxl` fixtures in
 `Tests/ScoreKitTests/Fixtures` from the `.musicxml` files there. The generated
 files are committed, so tests do not need `zip`.
+
+The complex-score fixtures in `Tests/ScoreKitTests/Fixtures/complex` keep their own
+licences, with sources beside them: `openscore/` is five OpenScore Lieder transcriptions
+(CC0 1.0) and `lilypond/` is a selection of the LilyPond unofficial MusicXML test suite
+(MIT, Reinhold Kainhofer). `Scripts/make-lilypond-fixtures.sh` rebuilds the latter.
+
+Where the web app's OSMD/VexFlow output differs from correct engraving or playback, see
+[docs/osmd-vexflow-limitations.md](docs/osmd-vexflow-limitations.md).
 
 ## License
 

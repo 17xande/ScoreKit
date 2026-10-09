@@ -33,6 +33,11 @@ public struct PlayedMeasure: Sendable, Hashable {
 ///   (the mark sits over the final note or chord; with no note there, at the mark itself);
 ///   a mark at the measure's start or end (the usual place for a label) leaves it whole. A segno or
 ///   coda mid-bar is entered there; one at the bar's end starts the next measure.
+/// - An ending whose bracket stops before the backward repeat that closes it, with the next
+///   ending right after that repeat, extends to the repeat (as OSMD does). An open last ending
+///   on a single bar extends to a Fine before the next ending (a heuristic for under-encoded files).
+/// - A backward repeat plays as many passes as the highest ending number of any volta group
+///   inside its section.
 /// - `times` is capped at 16 and the total at 64 measures per score measure, so
 ///   a malformed score cannot play for ever.
 /// - A measure's length is the longest of any part's measure with that index.
@@ -64,6 +69,7 @@ public struct Unroll: Sendable {
         var noteEnds = [[Rational: Rational]](repeating: [:], count: n)   // by measure: onset -> latest end
         var starts: [Int: RawStart] = [:]
         var stops: [Int] = []
+        var openStops = Set<Int>()   // stops written as `discontinue` (no closing hook)
 
         for part in score.parts {
             for m in part.measures {
@@ -95,7 +101,9 @@ public struct Unroll: Sendable {
                                 starts[i] = RawStart(index: i, numbers: e.numbers, text: e.text)
                             }
                         case .stop, .discontinue:
-                            stops.append(b.location == .left ? max(0, i - 1) : i)
+                            let at = b.location == .left ? max(0, i - 1) : i
+                            stops.append(at)
+                            if e.kind == .discontinue { openStops.insert(at) }
                         }
                     }
                 }
@@ -111,7 +119,24 @@ public struct Unroll: Sendable {
         var ordinal = 0
         for (k, s) in sortedStarts.enumerated() {
             let nextStart = k + 1 < sortedStarts.count ? sortedStarts[k + 1].index : n
-            let end = min(stops.filter { $0 >= s.index }.min() ?? n - 1, nextStart - 1)
+            var end = min(stops.filter { $0 >= s.index }.min() ?? n - 1, nextStart - 1)
+            let nextNumbers = k + 1 < sortedStarts.count ? sortedStarts[k + 1].numbers : []
+            // A non-last ending whose bracket stops early but whose backward repeat comes later,
+            // right before the next ending, covers everything up to that repeat (OpenScore and
+            // MuseScore export a long volta 1 as start and discontinue on its first measure).
+            // Read strictly, the repeat would jump back to the measure after the bracket.
+            if k + 1 < sortedStarts.count, (nextNumbers.min() ?? 0) > (s.numbers.max() ?? 0),
+               let b = backward.keys.filter({ $0 >= end }).min(), b > end, b + 1 == nextStart,
+               !forward.contains(where: { $0 > end && $0 <= b }) {
+                end = b
+            }
+            // Heuristic for an under-encoded last ending: an open ending written on a single bar,
+            // not touching the next ending, with a Fine before that next ending, runs to the Fine
+            // (the closing "Pour finir" section of a rondo-like song).
+            if end == s.index, openStops.contains(end), end + 1 < nextStart,
+               let f = (end + 1..<nextStart).first(where: { marks[$0].contains { $0.kind == .fine } }) {
+                end = f
+            }
             if let last = regions.last, last.end + 1 != s.index { group += 1; ordinal = 0 }
             ordinal += 1
             var numbers = s.numbers
@@ -190,7 +215,10 @@ public struct Unroll: Sendable {
 
             var tookRepeat = false
             if !jumped, let entry = backward[i] {
-                let total = max(entry ?? 2, regionHolding[i].flatMap { groupMax[$0.group] } ?? 0)
+                // As many passes as the highest ending number of any volta group in the section.
+                let endings = regions.filter { $0.start >= repeatStart && $0.start <= i }
+                    .map { groupMax[$0.group] ?? 1 }.max() ?? 0
+                let total = max(entry ?? 2, endings)
                 if pass < total {
                     pass += 1
                     i = repeatStart

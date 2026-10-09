@@ -45,12 +45,22 @@ enum StaffGeometry {
     private static let trebleSharps = [8, 5, 9, 6, 3, 7, 4]
     private static let trebleFlats = [4, 7, 3, 6, 2, 5, 1]
 
-    /// The alteration (-1, 0, +1) a key signature gives a letter.
+    /// Most accidentals a theoretical key signature is drawn with: 7 letters, each at most doubled.
+    static let maxKeyFifths = 14
+
+    /// The alteration a key signature gives a letter: -2...2. Beyond 7 sharps (or flats) the
+    /// signature is theoretical: the letters in order get a double sharp (flat) on top of the
+    /// seven single ones (G# major is F## and six sharps). Counts past 14 are clamped.
     static func keyAlter(fifths: Int, step: Step) -> Int {
-        if fifths > 0 { return sharpOrder.prefix(min(fifths, 7)).contains(step) ? 1 : 0 }
-        if fifths < 0 { return flatOrder.prefix(min(-fifths, 7)).contains(step) ? -1 : 0 }
-        return 0
+        guard fifths != 0 else { return 0 }
+        let n = min(abs(fifths), maxKeyFifths)
+        guard let i = (fifths > 0 ? sharpOrder : flatOrder).firstIndex(of: step) else { return 0 }
+        let alter = (i < min(n, 7) ? 1 : 0) + (i < n - 7 ? 1 : 0)
+        return fifths > 0 ? alter : -alter
     }
+
+    /// Number of accidentals drawn for `fifths` (at most one per letter).
+    static func keyGlyphCount(_ fifths: Int) -> Int { min(abs(fifths), 7) }
 
     /// Positions of the first `count` sharps (or flats) of the signature, in order, for `clef`.
     /// The common clefs use the traditional patterns (the zig-zag stays within the staff and
