@@ -52,7 +52,7 @@ func spotsForRestsAndGaps() throws {
     #expect(half.x > a.x && half.x < b.x)
     #expect(l.cursorSpot(measureIndex: 7, position: .zero) == nil)
     #expect(a.top == l.systems[0].staves[0].top && a.height == 4)
-    #expect(a.bandRect.width == 3 && a.bandRect.minX == a.x - 1.5)
+    #expect(a.bandRect.width == 3 && abs(a.bandRect.midX - (a.x + 1.18 / 2)) < 1e-9)
 }
 
 @Test("cursor band spans both staves of a grand staff, or just the selected one")

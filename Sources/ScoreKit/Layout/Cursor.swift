@@ -9,7 +9,8 @@ import CoreGraphics
 /// Where the playback cursor sits: a vertical band over a whole system.
 ///
 /// `x` is the left edge of a standard notehead at the position (the web's staff-entry x). The
-/// band, as OSMD draws it, is `bandWidth` wide and starts `bandInset` left of `x`.
+/// band is `bandWidth` wide and centred on the notehead column: on `x` plus half a standard
+/// (black) notehead's width.
 public struct CursorSpot: Sendable, Hashable {
     public var systemIndex: Int
     public var x: Double
@@ -19,7 +20,8 @@ public struct CursorSpot: Sendable, Hashable {
     public var height: Double
 
     public static let bandWidth = 3.0
-    public static let bandInset = 1.5
+    /// From `x` to the centre of the notehead column (half a standard black notehead).
+    public static let headCentreOffset = Glyph.noteheadBlack.metrics.advance / 2
 
     public init(systemIndex: Int, x: Double, top: Double, height: Double) {
         self.systemIndex = systemIndex; self.x = x; self.top = top; self.height = height
@@ -27,7 +29,7 @@ public struct CursorSpot: Sendable, Hashable {
 
     /// The band to draw.
     public var bandRect: CGRect {
-        CGRect(x: x - Self.bandInset, y: top, width: Self.bandWidth, height: height)
+        CGRect(x: x + Self.headCentreOffset - Self.bandWidth / 2, y: top, width: Self.bandWidth, height: height)
     }
 
     /// The spot `fraction` (0...1) of the way to `other`, for gliding. Never moves across a
