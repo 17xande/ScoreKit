@@ -30,9 +30,12 @@ public final class PreparedLayout: Sendable {
     let headSharers: [NoteID: [NoteID]]
     /// Per system: the notes whose marks can colour its items (see `ScoreCanvas`).
     let systemNoteIDs: [Set<NoteID>]
+    /// Every measure's frame, for selecting by point (`MeasureSelection.measure(at:in:)`).
+    public let measureFrames: [MeasureFrame]
 
     public init(layout: ScoreLayout) {
         self.layout = layout
+        measureFrames = layout.measureFrames
         systems = layout.systems.map { sys in
             sys.items.map { item in
                 let b = item.bounds

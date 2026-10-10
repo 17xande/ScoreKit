@@ -98,6 +98,15 @@ public struct ScoreView: View {
     public var marks: [NoteID: Color]
     public var cursor: CursorSource
     public var measureTints: [Int: Color]
+    /// Measures (0-based) drawn faded over the notes: the ones outside the practice range.
+    public var dimmedMeasures: Set<Int>
+    /// The fade, normally the paper colour at about 0.7 opacity.
+    public var dimColor: Color
+    /// Where a press-hold-drag highlights measures while it runs.
+    public var selectionColor: Color
+    /// When set, pressing and holding then dragging over the score selects measures; this gets the
+    /// span (0-based, in order) on release. A quick tap and an ordinary drag are unaffected.
+    public var onSelectMeasures: ((ClosedRange<Int>) -> Void)?
     public var onTap: ((HitResult) -> Void)?
     public var onTapMeasure: ((Int) -> Void)?
     /// Called (on the main actor) whenever a new layout is computed, including the first.
@@ -107,14 +116,21 @@ public struct ScoreView: View {
 
     @State private var cache = LayoutCache()
     @State private var manualOffset: Double?
+    /// The span being dragged out, and the measure it started on.
+    @State private var dragSpan: ClosedRange<Int>?
+    @State private var dragAnchor: Int?
 
     public init(score: Score, scoreID: AnyHashable? = nil, options: ScoreViewOptions = ScoreViewOptions(),
                 marks: [NoteID: Color] = [:], cursor: CursorSource = .hidden,
-                measureTints: [Int: Color] = [:], seekToken: Int = 0,
+                measureTints: [Int: Color] = [:], dimmedMeasures: Set<Int> = [], dimColor: Color = .clear,
+                selectionColor: Color = Color.accentColor.opacity(0.28),
+                onSelectMeasures: ((ClosedRange<Int>) -> Void)? = nil, seekToken: Int = 0,
                 onTap: ((HitResult) -> Void)? = nil, onTapMeasure: ((Int) -> Void)? = nil,
                 onLayout: ((ScoreLayout) -> Void)? = nil) {
         self.score = score; self.scoreID = scoreID; self.options = options; self.marks = marks
         self.cursor = cursor; self.measureTints = measureTints; self.seekToken = seekToken
+        self.dimmedMeasures = dimmedMeasures; self.dimColor = dimColor; self.selectionColor = selectionColor
+        self.onSelectMeasures = onSelectMeasures
         self.onTap = onTap; self.onTapMeasure = onTapMeasure; self.onLayout = onLayout
     }
 
@@ -128,13 +144,19 @@ public struct ScoreView: View {
         GeometryReader { geo in
             if geo.size.width > 1 {
                 let prepared = cache.prepared(score: score, scoreID: scoreID, options: options, width: geo.size.width)
+                let tints = tintsWithSelection
+                // While dragging the fade is off, so the highlight reads on the plain sheet.
+                let dim = dragSpan == nil ? dimmedMeasures : []
+                let select = selectActions(prepared)
                 Group {
                     switch options.mode {
                     case .page:
-                        PageContent(prepared: prepared, options: options, marks: marks, measureTints: measureTints,
+                        PageContent(prepared: prepared, options: options, marks: marks, measureTints: tints,
+                                    dimmed: dim, dimColor: dimColor, select: select,
                                     source: cursor, onTap: handleTap(prepared))
                     case .line:
-                        LineContent(prepared: prepared, options: options, marks: marks, measureTints: measureTints,
+                        LineContent(prepared: prepared, options: options, marks: marks, measureTints: tints,
+                                    dimmed: dim, dimColor: dimColor, select: select, selecting: dragSpan != nil,
                                     source: cursor, viewport: geo.size, manualOffset: $manualOffset,
                                     onTap: handleTap(prepared))
                     }
@@ -151,6 +173,36 @@ public struct ScoreView: View {
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(accessibilityLabel)
         .accessibilityAddTraits(.isImage)
+    }
+
+    private var tintsWithSelection: [Int: Color] {
+        guard let span = dragSpan else { return measureTints }
+        var t = measureTints
+        for i in span { t[i] = selectionColor }
+        return t
+    }
+
+    /// The selection callbacks (layout points in staff spaces), nil when selecting is off.
+    private func selectActions(_ prepared: PreparedLayout) -> SelectActions? {
+        guard let onSelectMeasures else { return nil }
+        func at(_ p: CGPoint) -> Int? { MeasureSelection.measure(at: p, in: prepared.measureFrames) }
+        return SelectActions(
+            begin: { p in
+                guard let m = at(p) else { return }
+                dragAnchor = m
+                dragSpan = m...m
+            },
+            move: { p in
+                guard let a = dragAnchor, let m = at(p) else { return }
+                let s = MeasureSelection.span(a, m)
+                if s != dragSpan { dragSpan = s }
+            },
+            end: {
+                let s = dragSpan
+                dragSpan = nil; dragAnchor = nil
+                if let s { onSelectMeasures(s) }
+            },
+            cancel: { dragSpan = nil; dragAnchor = nil })
     }
 
     private var accessibilityLabel: String {
@@ -171,6 +223,14 @@ public struct ScoreView: View {
     }
 }
 
+/// What a press-hold-drag reports, in layout points (staff spaces).
+struct SelectActions {
+    var begin: (CGPoint) -> Void
+    var move: (CGPoint) -> Void
+    var end: () -> Void
+    var cancel: () -> Void
+}
+
 // MARK: Page
 
 private struct PageContent: View {
@@ -178,6 +238,9 @@ private struct PageContent: View {
     var options: ScoreViewOptions
     var marks: [NoteID: Color]
     var measureTints: [Int: Color]
+    var dimmed: Set<Int>
+    var dimColor: Color
+    var select: SelectActions?
     var source: CursorSource
     var onTap: (CGPoint) -> Void
 
@@ -197,7 +260,8 @@ private struct PageContent: View {
                     ForEach(layout.systems.indices, id: \.self) { i in
                         let row = prepared.pageRow(i)
                         ScoreCanvas(layout: prepared, systemIndex: i, scale: scale, ink: options.ink ?? .primary,
-                                    noteColors: marks, measureTints: measureTints, region: row)
+                                    noteColors: marks, measureTints: measureTints, dimmed: dimmed, dimColor: dimColor,
+                                    region: row)
                             .equatable()
                             .overlay {
                                 GlidingCursorOverlay(layout: prepared, source: source, scale: scale,
@@ -212,6 +276,18 @@ private struct PageContent: View {
                 }
                 .frame(width: layout.size.width * scale, alignment: .topLeading)
             }
+            #if canImport(UIKit)
+            .background {
+                if let select {
+                    SelectCatcher(usesScrollView: true, scrollX: nil,
+                                  toContent: { _, inScroll in
+                                      let p = inScroll ?? .zero
+                                      return CGPoint(x: p.x / scale, y: p.y / scale)
+                                  },
+                                  onBegin: select.begin, onMove: select.move, onEnd: select.end, onCancel: select.cancel)
+                }
+            }
+            #endif
             .background {
                 // Follows the cursor's system, on first appearance and after a reflow too.
                 TimelineView(.animation(paused: !source.isAnimated)) { tl in
@@ -233,12 +309,14 @@ private struct LineTiles: View, Equatable {
     var options: ScoreViewOptions
     var marks: [NoteID: Color]
     var measureTints: [Int: Color]
+    var dimmed: Set<Int>
+    var dimColor: Color
     var first: Int
     var last: Int
 
     nonisolated static func == (a: LineTiles, b: LineTiles) -> Bool {
         a.prepared === b.prepared && a.options == b.options && a.marks == b.marks
-            && a.measureTints == b.measureTints && a.first == b.first && a.last == b.last
+            && a.measureTints == b.measureTints && a.dimmed == b.dimmed && a.dimColor == b.dimColor && a.first == b.first && a.last == b.last
     }
 
     var body: some View {
@@ -251,7 +329,7 @@ private struct LineTiles: View, Equatable {
                 let w = min(tileSp, prepared.layout.size.width - x0)
                 if w > 0 {
                     ScoreCanvas(layout: prepared, systemIndex: 0, scale: scale, ink: options.ink ?? .primary,
-                                noteColors: marks, measureTints: measureTints,
+                                noteColors: marks, measureTints: measureTints, dimmed: dimmed, dimColor: dimColor,
                                 region: CGRect(x: x0, y: region.minY, width: w, height: region.height))
                         .equatable()
                         .offset(x: x0 * scale)
@@ -294,6 +372,10 @@ private struct LineContent: View {
     var options: ScoreViewOptions
     var marks: [NoteID: Color]
     var measureTints: [Int: Color]
+    var dimmed: Set<Int>
+    var dimColor: Color
+    var select: SelectActions?
+    var selecting: Bool
     var source: CursorSource
     var viewport: CGSize
     @Binding var manualOffset: Double?
@@ -325,6 +407,11 @@ private struct LineContent: View {
     /// Offsets snap to device pixels, so tile seams never land between pixels.
     private func snapped(_ o: Double) -> Double { (o * displayScale).rounded() / displayScale }
 
+    /// The offset the line shows now (a cursor that is playing eases, so it is read at the current time).
+    private func currentOffset(animated: Bool) -> Double {
+        animated ? target(source.spot(in: prepared.layout, at: Date())) : clamped(manualOffset ?? shown)
+    }
+
     var body: some View {
         let region = prepared.lineRegion()
         let height = region.height * scale
@@ -339,7 +426,7 @@ private struct LineContent: View {
                                Int(((off + 2 * viewport.width) / Self.tilePoints).rounded(.down)))
             ZStack(alignment: .topLeading) {
                 LineTiles(prepared: prepared, options: options, marks: marks, measureTints: measureTints,
-                          first: tileFirst, last: tileLast)
+                          dimmed: dimmed, dimColor: dimColor, first: tileFirst, last: tileLast)
                     .equatable()
                 CursorOverlay(spot: spot, scale: scale, color: options.cursorColor, origin: CGPoint(x: 0, y: region.minY))
             }
@@ -362,9 +449,24 @@ private struct LineContent: View {
         }
         .frame(width: viewport.width, height: height, alignment: .topLeading)
         .clipped()
+        #if canImport(UIKit)
+        .background {
+            if let select {
+                SelectCatcher(usesScrollView: false,
+                              scrollX: { dx in manualOffset = clamped((manualOffset ?? currentOffset(animated: animated)) + dx) },
+                              toContent: { p, _ in
+                                  let off = manualOffset ?? currentOffset(animated: animated)
+                                  return CGPoint(x: (p.x + off) / scale, y: (p.y / scale) + region.minY)
+                              },
+                              onBegin: { p in manualOffset = clamped(manualOffset ?? currentOffset(animated: animated)); select.begin(p) },
+                              onMove: select.move, onEnd: select.end, onCancel: select.cancel)
+            }
+        }
+        #endif
         .contentShape(Rectangle())
         .simultaneousGesture(
             DragGesture(minimumDistance: 10).onChanged { v in
+                if selecting { return }
                 let base = dragBase ?? manualOffset ?? (animated ? target(source.spot(in: prepared.layout, at: Date())) : shown)
                 dragBase = base
                 manualOffset = clamped(base - v.translation.width)

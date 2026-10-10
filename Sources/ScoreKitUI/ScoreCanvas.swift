@@ -19,10 +19,14 @@ public struct ScoreCanvas: View, Equatable {
     /// Measure index to a tint drawn behind the notes (only this system's measures matter).
     public var measureTints: [Int: Color]
     public var region: CGRect
+    /// Measures (of this system) covered, over the notes, by `dimColor`: those outside the practice range.
+    public var dimmed: Set<Int>
+    public var dimColor: Color
 
     public init(layout: PreparedLayout, systemIndex: Int, scale: Double, ink: Color = .primary,
                 noteColors: [NoteID: Color] = [:], groupColor: GroupColorPolicy = .firstMarkedMember,
-                measureTints: [Int: Color] = [:], region: CGRect? = nil) {
+                measureTints: [Int: Color] = [:], dimmed: Set<Int> = [], dimColor: Color = .clear,
+                region: CGRect? = nil) {
         self.layout = layout
         self.systemIndex = systemIndex
         self.scale = scale
@@ -43,13 +47,19 @@ public struct ScoreCanvas: View, Equatable {
         } else {
             self.measureTints = [:]
         }
+        if let sys, !dimmed.isEmpty {
+            self.dimmed = dimmed.filter { i in sys.measures.contains { $0.index == i } }
+        } else {
+            self.dimmed = []
+        }
+        self.dimColor = dimColor
         self.region = region ?? layout.lineRegion(systemIndex)
     }
 
     nonisolated public static func == (a: ScoreCanvas, b: ScoreCanvas) -> Bool {
         a.layout === b.layout && a.systemIndex == b.systemIndex && a.scale == b.scale && a.ink == b.ink
             && a.groupColor == b.groupColor && a.region == b.region && a.noteColors == b.noteColors
-            && a.measureTints == b.measureTints
+            && a.measureTints == b.measureTints && a.dimmed == b.dimmed && a.dimColor == b.dimColor
     }
 
     /// Use `.equatable()` where unchanged canvases should skip their body (`ScoreView` does).
@@ -134,6 +144,15 @@ public struct ScoreCanvas: View, Equatable {
                 }
             case .beam(let els, _):
                 ctx.fill(build(els), with: shading)
+            }
+        }
+
+        // The practice range's outside, over the notes so they stay readable.
+        if !dimmed.isEmpty, let first = sys.staves.first, let last = sys.staves.last {
+            for m in sys.measures where dimmed.contains(m.index) {
+                let device = CGRect(x: (m.x0 - ox) * k, y: (first.top - 2 - oy) * k,
+                                    width: (m.barX - m.x0) * k, height: (last.top - first.top + 8) * k)
+                ctx.fill(Path(device), with: .color(dimColor))
             }
         }
     }
