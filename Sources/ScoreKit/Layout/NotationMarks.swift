@@ -46,18 +46,24 @@ extension Engraving {
         return low
     }
 
-    /// Slurs, dynamics, hairpins, octave lines and pedal marks of one system, into the buffers of
+    /// Articulations, tremolos, arpeggios, slurs, ornaments, fermatas, dynamics, hairpins, words, octave lines and pedal marks of one system, into the buffers of
     /// the staves they belong to. Order matters: each kind goes outside the ones before it
     /// (slurs, then dynamics and hairpins, octave lines, pedal), and the volta, tempo and jump
     /// marks over the first staff (`layoutOverlays`) go outside all of them.
     func layoutNotation(range: Range<Int>, measures: [MeasureData], laid: [LaidMeasure], placed: [PlacedGroup],
-                        bufs: inout [StaffBuffer]) -> [SlurPiece] {
+                        bufs: inout [StaffBuffer]) -> CrossStaffMarks {
+        // Articulations, tremolo slashes and arpeggios are on the notes, inside the slurs.
+        layoutArticulations(placed: placed, bufs: &bufs)
+        layoutTremolos(placed: placed, bufs: &bufs)
+        let arps = layoutArpeggios(placed: placed, bufs: &bufs)
         let cross = layoutSlurs(range: range, measures: measures, laid: laid, placed: placed, bufs: &bufs)
         let ctx = NotationContext(engraving: self, range: range, measures: measures, laid: laid)
+        layoutOrnaments(ctx, placed: placed, bufs: &bufs)
+        layoutFermatas(ctx, placed: placed, bufs: &bufs)
         layoutDynamics(ctx, bufs: &bufs)
         layoutOctaveLines(ctx, bufs: &bufs)
         layoutPedals(ctx, bufs: &bufs)
-        return cross
+        return CrossStaffMarks(slurs: cross, arpeggios: arps)
     }
 
     // MARK: Dynamics and hairpins
@@ -76,8 +82,13 @@ extension Engraving {
             var cresc = false
             var spreadStart = 0.0, spreadEnd = 0.0
             var position: ScorePosition?
+            // A words direction, or the dashes that go on after one.
+            var text: String?
+            var isDash = false
         }
-        struct RowKey: Hashable { var slot: Int; var above: Bool }
+        /// `level` 1 is a second line outside the first (words that a hairpin runs under).
+        struct RowKey: Hashable { var slot: Int; var above: Bool; var level = 0 }
+        func order(_ k: RowKey) -> [Int] { [k.level, k.slot, k.above ? 1 : 0] }
         var rows: [RowKey: [Elem]] = [:]
         // Visual middle of a dynamic's lower-case letters: the hairpin line goes through it.
         let mid = 0.55
@@ -101,8 +112,19 @@ extension Engraving {
                 rows[RowKey(slot: slot, above: d.above), default: []].append(e)
             }
         }
-        // Dynamics that would overlap in a row are nudged right, in order.
-        for k in rows.keys.sorted(by: { ($0.slot, $0.above ? 1 : 0) < ($1.slot, $1.above ? 1 : 0) }) {
+        // Words directions ("rit.", "dolce") share the rows; they start at their note.
+        let wordStyle = TextStyle(size: 1.9, italic: true)
+        for w in wordMarks(ctx) {
+            let width = wordStyle.estimatedWidth(of: w.text)
+            let x0 = max(ctx.x(w.at, in: self) ?? staffLeft, staffLeft + 0.3)
+            var e = Elem(isHairpin: false, x0: x0, x1: x0 + width)
+            e.originX = x0; e.text = w.text
+            e.ascent = 0.78 * wordStyle.size; e.descent = 0.22 * wordStyle.size
+            e.position = w.at
+            rows[RowKey(slot: w.slot, above: w.above), default: []].append(e)
+        }
+        // Dynamics and words that would overlap in a row are nudged right, in order.
+        for k in rows.keys.sorted(by: { order($0).lexicographicallyPrecedes(order($1)) }) {
             rows[k]!.sort { $0.x0 < $1.x0 }
             var edge = -Double.infinity
             for i in rows[k]!.indices {
@@ -116,7 +138,7 @@ extension Engraving {
                 && w.start.measure < ctx.range.upperBound {
                 guard let slot = ctx.slot(part, w.staff) else { continue }
                 let key = RowKey(slot: slot, above: w.above)
-                let dyns = (rows[key] ?? []).filter { !$0.isHairpin }
+                let dyns = (rows[key] ?? []).filter { !$0.isHairpin && !$0.isDash }
                 let startsHere = ctx.range.contains(w.start.measure), endsHere = ctx.ends(w.end)
                 // Starts after a dynamic written at its start; ends before one written at its end.
                 var x1: Double, x2: Double
@@ -139,7 +161,44 @@ extension Engraving {
                 rows[key, default: []].append(e)
             }
         }
-        for (key, all) in rows.sorted(by: { ($0.key.slot, $0.key.above ? 1 : 0) < ($1.key.slot, $1.key.above ? 1 : 0) }) {
+        // Dashed lines after words ("cresc. - - -"): from the end of the words at their start to the end.
+        let rangeStart = ScorePosition(measure: ctx.range.lowerBound, onset: .zero)
+        for part in ctx.parts {
+            for d in score.parts[part].dashes where d.end > rangeStart && d.start.measure < ctx.range.upperBound {
+                guard let slot = ctx.slot(part, d.staff) else { continue }
+                let startsHere = ctx.range.contains(d.start.measure), endsHere = ctx.ends(d.end)
+                var key = RowKey(slot: slot, above: d.above ?? false)
+                var x1: Double
+                if startsHere, let x = ctx.x(d.start, in: self) {
+                    x1 = x
+                    if let k = rows.keys.sorted(by: { order($0).lexicographicallyPrecedes(order($1)) }).first(where: { $0.slot == slot && rows[$0]!.contains { $0.text != nil && $0.position == d.start } }),
+                       let w = rows[k]!.first(where: { $0.text != nil && $0.position == d.start }) { key = k; x1 = w.x1 + 0.5 }
+                } else { x1 = (ctx.lm(ctx.range.lowerBound)?.bodyStart ?? 0) + 0.2 }
+                var x2: Double
+                if endsHere, ctx.range.contains(d.end.measure), let x = ctx.x(d.end, in: self) {
+                    x2 = x - 0.5
+                    // Stops before a dynamic written where it ends.
+                    if let e = rows[key]?.first(where: { $0.text == nil && !$0.isHairpin && !$0.isDash && $0.position == d.end }) { x2 = e.x0 - 0.4 }
+                } else { x2 = ctx.barLeft(ctx.range.upperBound - 1) - 0.3 }
+                // A hairpin in the row has the span: the dashes go on after it.
+                for h in rows[key] ?? [] where h.isHairpin && h.x0 < x2 && h.x1 > x1 { x1 = max(x1, h.x1 + 0.4) }
+                guard x2 - x1 > 1 else { continue }
+                var e = Elem(isHairpin: false, x0: x1, x1: x2)
+                e.isDash = true; e.ascent = 0.2; e.descent = 0.2
+                rows[key, default: []].append(e)
+            }
+        }
+        // Words that a hairpin runs under go on a second line, outside it.
+        for key in rows.keys.sorted(by: { order($0).lexicographicallyPrecedes(order($1)) }) where key.level == 0 {
+            let spans = rows[key]!.filter(\.isHairpin).map { ($0.x0, $0.x1) }
+            guard !spans.isEmpty else { continue }
+            let (inside, rest) = (rows[key]!.filter { e in e.text != nil && spans.contains { e.x0 < $0.1 + 0.2 && e.x1 > $0.0 - 0.2 } },
+                                  rows[key]!.filter { e in !(e.text != nil && spans.contains { e.x0 < $0.1 + 0.2 && e.x1 > $0.0 - 0.2 }) })
+            if inside.isEmpty { continue }
+            rows[key] = rest
+            rows[RowKey(slot: key.slot, above: key.above, level: 1), default: []] += inside
+        }
+        for (key, all) in rows.sorted(by: { order($0.key).lexicographicallyPrecedes(order($1.key)) }) {
             let elems = all.sorted { $0.x0 < $1.x0 }
             // Clusters: elements within 0.8 sp of each other.
             var clusters: [[Elem]] = []
@@ -159,7 +218,17 @@ extension Engraving {
                     yc = max(6.3, floor(bufs[key.slot], x0, x1) + 0.5 + high)
                 }
                 for e in cl {
-                    if e.isHairpin {
+                    if e.isDash {
+                        var items: [LayoutItem] = []
+                        var dx = e.x0
+                        while dx < e.x1 - 1e-6 {
+                            items.append(.line(from: CGPoint(x: dx, y: yc), to: CGPoint(x: min(dx + 0.6, e.x1), y: yc), thickness: EngravingDefaults.octaveLineThickness))
+                            dx += 1.1
+                        }
+                        bufs[key.slot].addMark(.words, items)
+                    } else if let text = e.text {
+                        bufs[key.slot].addMark(.words, [.text(text, position: CGPoint(x: e.originX, y: yc + mid), style: wordStyle)])
+                    } else if e.isHairpin {
                         let ink = EngravingDefaults.hairpinThickness
                         let (sa, sb) = (e.spreadStart, e.spreadEnd)
                         // A hairpin is two strokes meeting at its closed end.
@@ -180,6 +249,67 @@ extension Engraving {
                 }
             }
         }
+    }
+
+    // MARK: Words
+
+    /// The words directions of one system: those of the drawn parts on their own staves, and the
+    /// ones only a hidden part has (not said in the same measure, within half a quarter, by a drawn
+    /// part or a tempo mark) on the first staff. Placement: the file's; else above for tempo-like
+    /// words (rit., a tempo ...), below for the rest.
+    func wordMarks(_ ctx: NotationContext) -> [(slot: Int, above: Bool, at: ScorePosition, text: String)] {
+        struct Seen { var at: ScorePosition; var key: String }
+        func key(_ s: String) -> String { s.lowercased().filter { !$0.isWhitespace && $0 != "." } }
+        var out: [(slot: Int, above: Bool, at: ScorePosition, text: String)] = []
+        var seen: [Seen] = []
+        func tempoLike(_ s: String) -> Bool {
+            let prefixes = ["rall", "accel", "tempo", "mosso", "string", "allarg", "ralent", "retenu", "retenir", "cédez", "cedez", "animé", "lent"]
+            let whole = ["rit", "ritard", "ritenuto"]
+            return s.lowercased().split(whereSeparator: { $0 == " " || $0 == "." }).contains { w in whole.contains(String(w)) || prefixes.contains { w.hasPrefix($0) } }
+        }
+        func add(_ w: TextMark, slot: Int) {
+            out.append((slot, w.above ?? tempoLike(w.text), w.at, w.text))
+            seen.append(Seen(at: w.at, key: key(w.text)))
+        }
+        // Tempo marks say their words too.
+        var tempoSeen: [Seen] = []
+        for p in score.parts.indices {
+            for m in ctx.range where m < score.parts[p].measures.count {
+                for d in score.parts[p].measures[m].directions {
+                    if let w = d.words { tempoSeen.append(Seen(at: ScorePosition(measure: m, onset: d.onset + d.offset), key: key(w))) }
+                }
+            }
+        }
+        func dur(_ m: Int) -> Rational { score.parts[0].measures[min(m, score.parts[0].measures.count - 1)].duration }
+        func said(_ w: TextMark, in list: [Seen]) -> Bool {
+            let k = key(w.text)
+            return list.contains { $0.key == k && $0.at.measure == w.at.measure && abs(($0.at.onset - w.at.onset).double) <= 0.5 }
+        }
+        for part in ctx.parts {
+            for w in score.parts[part].words where ctx.range.contains(w.at.measure) && !said(w, in: tempoSeen) {
+                if let slot = ctx.slot(part, w.staff) { add(w, slot: slot) }
+            }
+        }
+        for part in score.parts.indices where !ctx.parts.contains(part) {
+            // A hidden part's words are mostly its own (a singer's text): only tempo-like ones are kept, and
+            // not when a drawn part or a tempo mark says them anywhere in the measure, or just across a barline.
+            for w in score.parts[part].words where ctx.range.contains(w.at.measure) && tempoLike(w.text) {
+                let k = key(w.text)
+                func near(_ o: Seen) -> Bool {
+                    guard o.key == k else { return false }
+                    let dm = o.at.measure - w.at.measure
+                    if dm == 0 { return true }
+                    // Within a quarter across the barline.
+                    if dm == 1 { return (o.at.onset + dur(w.at.measure) - w.at.onset).double <= 1 }
+                    if dm == -1 { return (w.at.onset + dur(o.at.measure) - o.at.onset).double <= 1 }
+                    return false
+                }
+                let dup = (tempoSeen + seen).contains(where: near)
+                if dup { continue }
+                add(w, slot: 0)
+            }
+        }
+        return out
     }
 
     // MARK: Octave lines

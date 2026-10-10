@@ -47,6 +47,9 @@ public struct Part: Sendable, Equatable {
     public var pedals: [Pedal] = []
     public var wedges: [Wedge] = []
     public var dynamics: [Dynamic] = []
+    /// Plain words directions and dashed lines of the part (tempo words are in `Measure.directions`).
+    public var words: [TextMark] = []
+    public var dashes: [DashLine] = []
 
     public init(id: String, name: String, abbreviation: String? = nil, staves: Int, measures: [Measure],
                 instrumentName: String? = nil, instrumentSound: String? = nil, midiProgram: Int? = nil) {
@@ -249,6 +252,8 @@ public struct Barline: Sendable, Hashable {
     public var style: String?
     public var repeatMark: Repeat?
     public var ending: Ending?
+    /// A `<fermata>` on the barline.
+    public var fermata: FermataMark?
 }
 
 public struct Measure: Sendable, Equatable {

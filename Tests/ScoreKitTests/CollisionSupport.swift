@@ -87,7 +87,7 @@ func pianoOptions(_ s: Score, width: Double = 100) -> LayoutOptions {
     return o
 }
 
-// MARK: Notation marks (slurs, dynamics, hairpins, octave lines, pedal)
+// MARK: Notation marks (slurs, dynamics, hairpins, octave lines, pedal, articulations, ornaments ...)
 
 struct MarkClash: CustomStringConvertible {
     var mark: LaidMark.Kind
@@ -100,30 +100,9 @@ struct MarkClash: CustomStringConvertible {
     }
 }
 
-/// The ink of an item as boxes: a glyph or text by its box; a slanted line and a path by boxes along
+/// The ink of an item as boxes: a glyph or text by its box; a slanted line, a path and a beam by boxes along
 /// them (so a long slur does not count as the whole area under it).
-func inkShapes(_ it: LayoutItem) -> [CGRect] {
-    func along(_ pts: [CGPoint], _ r: Double) -> [CGRect] {
-        var out: [CGRect] = []
-        var prev: CGPoint?
-        for p in pts {
-            if let q = prev, hypot(p.x - q.x, p.y - q.y) > 0.01 {
-                let n = max(1, Int(ceil(hypot(p.x - q.x, p.y - q.y) / 0.1)))
-                for i in 0...n {
-                    let t = Double(i) / Double(n)
-                    out.append(CGRect(x: q.x + (p.x - q.x) * t - r, y: q.y + (p.y - q.y) * t - r, width: 2 * r, height: 2 * r))
-                }
-            } else if prev == nil { out.append(CGRect(x: p.x - r, y: p.y - r, width: 2 * r, height: 2 * r)) }
-            prev = p
-        }
-        return out
-    }
-    switch it {
-    case .line(let a, let b, let t, _, _) where a.x != b.x && a.y != b.y: return along([a, b], t / 2)
-    case .path(let els, let stroke, _, _, _): return along(Engraving.flatten(els), (stroke ?? 0) / 2)
-    default: let b = it.bounds; return b.isNull ? [] : [b]
-    }
-}
+func inkShapes(_ it: LayoutItem) -> [CGRect] { it.inkBoxes }
 
 /// What a notation mark must not overlap on its staff: noteheads, accidentals, dots, stems, flags,
 /// beams, rests, ledger lines, ties and fingering of the staff's notes; other marks (slurs may
@@ -156,7 +135,8 @@ func markClashes(_ layout: ScoreLayout, tolerance: Double = 0.06) -> [MarkClash]
             let shapes = m.items.flatMap { inkShapes(sys.items[$0]) }
             for s in shapes {
                 let r = s.insetBy(dx: tolerance, dy: tolerance)
-                for (rect, what) in ink[m.staffIndex] ?? [] where r.intersects(rect.insetBy(dx: tolerance, dy: tolerance)) {
+                // Tremolo slashes cross their own stem.
+                for (rect, what) in ink[m.staffIndex] ?? [] where r.intersects(rect.insetBy(dx: tolerance, dy: tolerance)) && !(m.kind == .tremolo && what == "stem") {
                     out.append(MarkClash(mark: m.kind, other: what, system: si, staff: m.staffIndex, x: s.midX, y: s.midY))
                 }
                 if m.staffIndex == 0 {

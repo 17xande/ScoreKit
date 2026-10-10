@@ -58,6 +58,8 @@ struct Group {
     /// Stem direction of the voice when the file gives none (see `engraveVoices`).
     var voiceDefaultUp = true
     var multiVoice = false
+    /// A note of the chord has an `<arpeggiate>`: its wavy line takes room (`arpeggioWidth`) left of the column's ink.
+    var arpeggio = false
     /// `<stem>none</stem>`: no stem, flag or beam.
     var stemNone = false
     /// Whole-group shift to the right, to clear another voice's heads.
@@ -87,6 +89,8 @@ struct Group {
         let minX = leftEdge.map { min($0, baseDX + (notes.map(\.dx).min() ?? 0)) } ?? (baseDX + (notes.map(\.dx).min() ?? 0))
         return accTotal + (hasAccidental ? 0.2 * scale : 0) + max(0, -minX)
     }
+    /// Room for an arpeggio's wavy line (its width and the gaps either side).
+    static let arpeggioWidth = 1.5
     /// Extent to the right of the column's x: heads, flipped heads and dots.
     var rightW: Double {
         if isRest { return Glyph.rest(value).metrics.advance + dotsWidth }

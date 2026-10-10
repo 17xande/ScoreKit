@@ -33,7 +33,9 @@ func dumpMarkClashes() throws {
             let counts = l.systems.flatMap(\.marks).reduce(into: [String: Int]()) { $0["\($1.kind)", default: 0] += 1 }
             print("MARK \(n) w\(Int(w)): \(cs.count) \(by.sorted { $0.key < $1.key }) of \(counts.sorted { $0.key < $1.key })")
             if ProcessInfo.processInfo.environment["SCOREKIT_DUMP_MARKS"] == "2", w == 100 {
-                for c in cs.prefix(60) { print("MARK   \(c)") }
+                // SCOREKIT_DUMP_KIND=arpeggio shows only the clashes of that mark kind.
+                let only = ProcessInfo.processInfo.environment["SCOREKIT_DUMP_KIND"]
+                for c in cs.filter({ only == nil || "\($0.mark)" == only }).prefix(60) { print("MARK   \(n.prefix(5)) \(c)") }
             }
         }
     }

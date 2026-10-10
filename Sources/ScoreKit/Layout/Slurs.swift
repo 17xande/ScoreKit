@@ -135,6 +135,10 @@ extension Engraving {
             let g = pg.group
             if !g.grace, let s = pg.stem, s.up == above { return (s.x, s.yEnd + (above ? -0.45 : 0.45)) }
             let box = headBox(pg, above ? g.notes.count - 1 : 0)
+            // Articulations on the slur's side stay inside it: the slur starts outside them.
+            if let a = bufs[pg.slotIndex].articulationEdge[g.leadID], a.above == above {
+                return (box.midX, above ? min(box.minY - 0.4, a.y - 0.35) : max(box.maxY + 0.4, a.y + 0.35))
+            }
             return (box.midX, above ? box.minY - 0.4 : box.maxY + 0.4)
         }
         var pieces: [SlurPiece] = []
@@ -167,7 +171,9 @@ extension Engraving {
         // Short slurs first: longer ones that span them then go outside.
         pieces.sort { ($0.x2 - $0.x1) < ($1.x2 - $1.x1) }
         for p in pieces where p.endSlot == nil {
-            let item = slurItem(p, items: bufs[p.slot].items, slurItems: Set(bufs[p.slot].marks.filter { $0.kind == .slur }.flatMap { Array($0.items) }), cross: false)
+            let inkItems = Set(bufs[p.slot].marks.filter { Self.slurObstacles.contains($0.kind) }.flatMap { Array($0.items) })
+            let item = slurItem(p, items: bufs[p.slot].items, slurItems: Set(bufs[p.slot].marks.filter { $0.kind == .slur }.flatMap { Array($0.items) }),
+                                inkItems: inkItems, cross: false)
             bufs[p.slot].addMark(.slur, [item])
         }
         return pieces.filter { $0.endSlot != nil }
@@ -176,9 +182,12 @@ extension Engraving {
     /// A cross-staff slur between two staves of a placed system, in layout coordinates: it clears the
     /// notes of both staves near it, like any slur. `items` are the system's items so far and
     /// `slurItems` the indices of the slurs among them.
-    func crossStaffSlurItem(_ p: SlurPiece, items: [LayoutItem], slurItems: Set<Int>) -> LayoutItem {
-        slurItem(p, items: items, slurItems: slurItems, cross: true)
+    func crossStaffSlurItem(_ p: SlurPiece, items: [LayoutItem], slurItems: Set<Int>, inkItems: Set<Int>) -> LayoutItem {
+        slurItem(p, items: items, slurItems: slurItems, inkItems: inkItems, cross: true)
     }
+
+    /// The marks a slur curves outside of: they sit on the notes, inside it.
+    static let slurObstacles: Set<LaidMark.Kind> = [.articulation, .tremolo, .arpeggio]
 
     private struct SlurFit { var c1: Double, c2: Double, residual: Double, worstU: Double }
 
@@ -218,7 +227,7 @@ extension Engraving {
         return (SlurFit(c1: c1, c2: c2, residual: max(0, worst.map(deficit) ?? 0), worstU: worst?.u ?? 0.5), y1, y2)
     }
 
-    private func slurItem(_ p: SlurPiece, items: [LayoutItem], slurItems: Set<Int>, cross: Bool) -> LayoutItem {
+    private func slurItem(_ p: SlurPiece, items: [LayoutItem], slurItems: Set<Int>, inkItems: Set<Int>, cross: Bool) -> LayoutItem {
         // Everything with ink the slur must clear: heads, accidentals, dots, stems, flags, beams,
         // ties, fingering, earlier slurs, and tuplet numbers and brackets. Each is sampled by the
         // corners and edge middles of its box (an earlier slur by slices of its arc).
@@ -235,7 +244,7 @@ extension Engraving {
             case .line(_, _, let t, nil, nil): obstacle = t == EngravingDefaults.tupletBracketThickness
             default: break
             }
-            if slurItems.contains(idx) { obstacle = true }
+            if slurItems.contains(idx) || inkItems.contains(idx) { obstacle = true }
             guard obstacle else { continue }
             let b = it.bounds
             if b.isNull || b.maxX < xa || b.minX > xb { continue }

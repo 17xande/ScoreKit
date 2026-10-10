@@ -61,3 +61,88 @@ public struct SlurMark: Sendable, Hashable {
     /// `placement` or `orientation` ("above"/"over" is true, "below"/"under" false); nil when absent.
     public var above: Bool?
 }
+
+// MARK: S6c part 2: articulations, fermatas, arpeggios, ornaments, tremolo, words
+
+/// One articulation of a note (`<articulations>`), in the order of the file.
+public struct ArticulationMark: Sendable, Hashable {
+    public enum Kind: Sendable, Hashable {
+        case staccato, staccatissimo, accent
+        /// `<strong-accent>`: the marcato wedge.
+        case strongAccent
+        case tenuto
+        /// `<detached-legato>`: tenuto and staccato together (portato). A tenuto and a staccato
+        /// on one note are drawn as this too.
+        case tenutoStaccato
+    }
+    public var kind: Kind
+    /// `placement` ("above"/"below"); nil when absent.
+    public var above: Bool?
+}
+
+/// A fermata on a note, rest or barline. `inverted` is `type="inverted"` (drawn below).
+public struct FermataMark: Sendable, Hashable {
+    public var inverted: Bool
+}
+
+/// `<arpeggiate>`: a wavy line left of the chord. Notes of one chord (also across the two staves
+/// of a part) with the same `number` at one position share one line.
+public struct ArpeggioMark: Sendable, Hashable {
+    public var number: Int
+    /// `direction`: up or down puts an arrowhead on that end; nil is a plain wavy line.
+    public var up: Bool?
+}
+
+/// An ornament sign of a note (`<ornaments>`).
+public struct OrnamentMark: Sendable, Hashable {
+    public enum Kind: Sendable, Hashable {
+        /// `<trill-mark>`: "tr".
+        case trill
+        /// `<mordent>`: with the vertical stroke (a lower mordent).
+        case mordent
+        /// `<inverted-mordent>`: without it (an upper mordent).
+        case invertedMordent
+        case turn, invertedTurn
+    }
+    public var kind: Kind
+    public var above: Bool?
+    /// An `<accidental-mark>` that belongs to this ornament: the accidental's name ("sharp") and
+    /// `placement` (nil: above, except below a mordent).
+    public var accidental: String?
+    public var accidentalAbove: Bool?
+}
+
+/// `<wavy-line>`: the extension line of a trill, from this note to the note with the `stop`.
+public struct WavyMark: Sendable, Hashable {
+    public enum Kind: Sendable, Hashable { case start, stop, `continue` }
+    public var kind: Kind
+    public var number: Int
+}
+
+/// `<tremolo>`. A `single` one is drawn on the stem; the two notes of a double tremolo (`start`
+/// and `stop`) are parsed, and drawn as slashes between their stems.
+public struct TremoloMark: Sendable, Hashable {
+    public enum Kind: Sendable, Hashable { case single, start, stop }
+    public var kind: Kind
+    /// Number of slashes (1...8).
+    public var marks: Int
+}
+
+/// A plain words direction (`<words>`) that is no tempo or jump mark: "rit.", "dolce", "cresc.".
+public struct TextMark: Sendable, Hashable {
+    public var staff: Int
+    public var at: ScorePosition
+    /// With whitespace runs collapsed.
+    public var text: String
+    /// `placement`; nil when absent (the engraver picks: above for tempo-like words).
+    public var above: Bool?
+}
+
+/// A `<dashes>` line ("cresc. - - -") from `start` to `end`, on `staff`.
+public struct DashLine: Sendable, Hashable {
+    public var staff: Int
+    public var start: ScorePosition
+    public var end: ScorePosition
+    /// `placement` of the direction; nil when absent.
+    public var above: Bool?
+}

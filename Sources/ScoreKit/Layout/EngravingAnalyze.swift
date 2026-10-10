@@ -186,6 +186,7 @@ extension Engraving {
                 continue
             }
             g.head = .notehead(g.value)
+            g.arpeggio = chord.contains { $0.arpeggio != nil }
             for n in chord {
                 var p = 4
                 var hn: HeadNote
@@ -243,6 +244,7 @@ extension Engraving {
         for (i, o) in sorted.enumerated() {
             let next = i + 1 < sorted.count ? sorted[i + 1] : md.duration
             var minDur: Double?
+            var arpeggio = false
             var c = Column(onset: o, spaceDur: 1)
             for s in md.slots {
                 let here = s.groups.filter { $0.onset == o }
@@ -250,6 +252,7 @@ extension Engraving {
                     let d = g.notes[0].note.duration
                     if d > .zero { minDur = min(minDur ?? .infinity, d.double) }
                     c.accW = max(c.accW, g.leftW)
+                    if g.arpeggio { arpeggio = true }
                     c.rightW = max(c.rightW, g.rightW)
                 }
                 c.graceW = max(c.graceW, here.filter(\.grace).reduce(0) { $0 + $1.graceWidth })
@@ -262,6 +265,8 @@ extension Engraving {
                     c.keyW = max(c.keyW, w + 0.5)
                 }
             }
+            // An arpeggio's line goes left of every voice's heads and accidentals.
+            if arpeggio { c.accW += Group.arpeggioWidth }
             let gap = (next - o).double
             c.spaceDur = max(0.01, min(minDur ?? gap, gap > 0 ? gap : (minDur ?? 1)))
             columns.append(c)

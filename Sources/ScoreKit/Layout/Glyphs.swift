@@ -144,6 +144,31 @@ public enum Glyph: UInt32, Sendable, Hashable, CaseIterable {
     case ventiduesimaBassaMb = 0xE51E
     case octaveParensLeft = 0xE51A
     case octaveParensRight = 0xE51B
+    case articAccentAbove = 0xE4A0
+    case articAccentBelow = 0xE4A1
+    case articStaccatoAbove = 0xE4A2
+    case articStaccatoBelow = 0xE4A3
+    case articStaccatissimoAbove = 0xE4A6
+    case articStaccatissimoBelow = 0xE4A7
+    case articTenutoAbove = 0xE4A4
+    case articTenutoBelow = 0xE4A5
+    case articTenutoStaccatoAbove = 0xE4B2
+    case articTenutoStaccatoBelow = 0xE4B3
+    case articMarcatoAbove = 0xE4AC
+    case articMarcatoBelow = 0xE4AD
+    case fermataAbove = 0xE4C0
+    case fermataBelow = 0xE4C1
+    case ornamentTrill = 0xE566
+    case ornamentMordent = 0xE56D
+    case ornamentShortTrill = 0xE56C
+    case ornamentTurn = 0xE567
+    case ornamentTurnInverted = 0xE568
+    case wiggleTrill = 0xEAA4
+    case tremolo1 = 0xE220
+    case tremolo2 = 0xE221
+    case tremolo3 = 0xE222
+    case tremolo4 = 0xE223
+    case tremolo5 = 0xE224
 }
 
 extension Glyph {
@@ -274,6 +299,31 @@ extension Glyph {
         .ventiduesimaBassaMb: GlyphMetrics(minX: 0.016, minY: -0.028, maxX: 5.34, maxY: 1.852, advance: 5.34, anchors: [:]),
         .octaveParensLeft: GlyphMetrics(minX: 0.0, minY: -0.068, maxX: 0.652, maxY: 1.936, advance: 0.548, anchors: [:]),
         .octaveParensRight: GlyphMetrics(minX: -0.104, minY: -0.068, maxX: 0.548, maxY: 1.936, advance: 0.548, anchors: [:]),
+        .articAccentAbove: GlyphMetrics(minX: 0.0, minY: 0.004, maxX: 1.356, maxY: 0.98, advance: 1.356, anchors: [:]),
+        .articAccentBelow: GlyphMetrics(minX: 0.0, minY: -0.976, maxX: 1.356, maxY: 0.0, advance: 1.356, anchors: [:]),
+        .articStaccatoAbove: GlyphMetrics(minX: 0.0, minY: 0.0, maxX: 0.336, maxY: 0.336, advance: 0.336, anchors: [:]),
+        .articStaccatoBelow: GlyphMetrics(minX: 0.0, minY: -0.336, maxX: 0.336, maxY: 0.0, advance: 0.336, anchors: [:]),
+        .articStaccatissimoAbove: GlyphMetrics(minX: 0.004, minY: -0.008, maxX: 0.4, maxY: 1.172, advance: 0.408, anchors: [:]),
+        .articStaccatissimoBelow: GlyphMetrics(minX: 0.004, minY: -1.18, maxX: 0.4, maxY: 0.0, advance: 0.408, anchors: [:]),
+        .articTenutoAbove: GlyphMetrics(minX: -0.004, minY: 0.0, maxX: 1.352, maxY: 0.192, advance: 1.352, anchors: [:]),
+        .articTenutoBelow: GlyphMetrics(minX: -0.004, minY: -0.192, maxX: 1.352, maxY: 0.0, advance: 1.352, anchors: [:]),
+        .articTenutoStaccatoAbove: GlyphMetrics(minX: -0.004, minY: 0.0, maxX: 1.352, maxY: 0.96, advance: 1.356, anchors: [:]),
+        .articTenutoStaccatoBelow: GlyphMetrics(minX: -0.004, minY: -0.968, maxX: 1.352, maxY: 0.0, advance: 1.352, anchors: [:]),
+        .articMarcatoAbove: GlyphMetrics(minX: -0.004, minY: -0.004, maxX: 0.94, maxY: 1.012, advance: 0.944, anchors: [:]),
+        .articMarcatoBelow: GlyphMetrics(minX: -0.004, minY: -1.016, maxX: 0.94, maxY: 0.0, advance: 0.944, anchors: [:]),
+        .fermataAbove: GlyphMetrics(minX: 0.012, minY: -0.012, maxX: 2.42, maxY: 1.316, advance: 2.42, anchors: [:]),
+        .fermataBelow: GlyphMetrics(minX: 0.012, minY: -1.328, maxX: 2.42, maxY: 0.0, advance: 2.42, anchors: [:]),
+        .ornamentTrill: GlyphMetrics(minX: 0.0, minY: -0.04, maxX: 2.084, maxY: 1.56, advance: 2.084, anchors: [:]),
+        .ornamentMordent: GlyphMetrics(minX: 0.004, minY: -0.292, maxX: 2.916, maxY: 1.276, advance: 2.916, anchors: [:]),
+        .ornamentShortTrill: GlyphMetrics(minX: 0.0, minY: 0.0, maxX: 2.9, maxY: 0.98, advance: 2.92, anchors: [:]),
+        .ornamentTurn: GlyphMetrics(minX: 0.0, minY: 0.0, maxX: 1.84, maxY: 0.872, advance: 1.84, anchors: [:]),
+        .ornamentTurnInverted: GlyphMetrics(minX: -0.012, minY: 0.0, maxX: 1.828, maxY: 0.872, advance: 1.828, anchors: [:]),
+        .wiggleTrill: GlyphMetrics(minX: -0.144, minY: 0.392, maxX: 1.08, maxY: 0.836, advance: 0.948, anchors: [:]),
+        .tremolo1: GlyphMetrics(minX: -0.6, minY: -0.372, maxX: 0.6, maxY: 0.376, advance: 0.6, anchors: [:]),
+        .tremolo2: GlyphMetrics(minX: -0.604, minY: -0.748, maxX: 0.596, maxY: 0.748, advance: 0.596, anchors: [:]),
+        .tremolo3: GlyphMetrics(minX: -0.6, minY: -1.12, maxX: 0.6, maxY: 1.112, advance: 0.6, anchors: [:]),
+        .tremolo4: GlyphMetrics(minX: -0.6, minY: -1.48, maxX: 0.6, maxY: 1.496, advance: 0.596, anchors: [:]),
+        .tremolo5: GlyphMetrics(minX: -0.604, minY: -1.84, maxX: 0.6, maxY: 1.88, advance: 0.596, anchors: [:]),
     ]
 }
 

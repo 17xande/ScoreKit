@@ -92,7 +92,8 @@ public struct BeamID: Sendable, Hashable, Comparable {
 /// renderer decides the colour; the suggested policy is plain ink.
 /// Flags belong to their group (`groupID` is the group id, no `noteID`). Tuplet numbers and
 /// brackets have neither id and are drawn in ink.
-/// Slurs are filled `.path` items with no ids: they span several notes, so they are drawn in ink and
+/// Articulations, tremolo slashes, arpeggio lines, ornaments, fermatas and words are items with no ids,
+/// drawn in ink, and `LaidSystem.marks` says which items belong to which mark. Slurs are filled `.path` items with no ids: they span several notes, so they are drawn in ink and
 /// not painted with a note's mark. Dynamics, hairpins,
 /// octave lines and pedal marks have no ids and are drawn in ink; `LaidSystem.marks` says which
 /// items belong to which mark.
@@ -188,7 +189,8 @@ public struct LaidMeasure: Sendable, Hashable {
 /// One slur, dynamic, hairpin, octave line or pedal mark of a system, and which of
 /// `LaidSystem.items` draw it (a mark that breaks across systems gives one per system).
 struct LaidMark: Sendable, Hashable {
-    enum Kind: Sendable, Hashable { case slur, crossStaffSlur, dynamic, hairpin, octaveLine, pedal }
+    enum Kind: Sendable, Hashable { case slur, crossStaffSlur, dynamic, hairpin, octaveLine, pedal
+        case articulation, tremolo, arpeggio, ornament, fermata, words }
     var kind: Kind
     /// Index into `LaidSystem.staves`: the staff whose buffer it was placed with.
     var staffIndex: Int

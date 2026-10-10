@@ -28,6 +28,9 @@ struct StaffBuffer {
     var shared: [NoteID: NoteID] = [:]
     /// Notation marks (slurs, dynamics ...) and the range of `items` each one drew.
     var marks: [(kind: LaidMark.Kind, items: Range<Int>)] = []
+    /// Per group (by lead note): the outer edge of its stack of articulations and the side it is on,
+    /// where a slur at the group starts or ends.
+    var articulationEdge: [NoteID: (above: Bool, y: Double)] = [:]
 
     /// Adds the items of one notation mark.
     mutating func addMark(_ kind: LaidMark.Kind, _ new: [LayoutItem]) {
@@ -240,7 +243,7 @@ extension Engraving {
         layoutTies(range: range, placed: placed, measures: measures, laid: laidMeasures, bufs: &bufs)
         var pageLimit: Double?
         if case .fixed(let w) = options.width { pageLimit = w - rightMargin }
-        let crossSlurs = layoutNotation(range: range, measures: measures, laid: laidMeasures, placed: placed, bufs: &bufs)
+        let crossStaff = layoutNotation(range: range, measures: measures, laid: laidMeasures, placed: placed, bufs: &bufs)
         layoutOverlays(range: range, measures: measures, laid: laidMeasures, limit: pageLimit, buf: &bufs[0])
         for i in bufs.indices { bufs[i].fitExtent() }
 
@@ -286,14 +289,22 @@ extension Engraving {
         }
 
         // Slurs between two staves, now that the staves have places.
-        for p in crossSlurs {
+        for p in crossStaff.slurs {
             var q = p
             q.y1 += tops[p.slot]
             q.y2 += tops[p.endSlot!]
             let slurItems = Set(laidMarks.filter { $0.kind == .slur || $0.kind == .crossStaffSlur }.flatMap { Array($0.items) })
-            let item = crossStaffSlurItem(q, items: items, slurItems: slurItems)
+            let inkItems = Set(laidMarks.filter { Self.slurObstacles.contains($0.kind) }.flatMap { Array($0.items) })
+            let item = crossStaffSlurItem(q, items: items, slurItems: slurItems, inkItems: inkItems)
             laidMarks.append(LaidMark(kind: .crossStaffSlur, staffIndex: p.slot, items: items.count..<(items.count + 1)))
             items.append(item)
+        }
+
+        // Arpeggios between two staves.
+        for a in crossStaff.arpeggios {
+            let new = Self.arpeggioItems(x: a.x, y1: a.y1 + tops[a.slot], y2: a.y2 + tops[a.endSlot], up: a.up)
+            laidMarks.append(LaidMark(kind: .arpeggio, staffIndex: a.slot, items: items.count..<(items.count + new.count)))
+            items += new
         }
 
         // Barlines span all staves of a part.

@@ -2,7 +2,7 @@ import Foundation
 import ScoreKit
 
 // Debug tool: lays a MusicXML/.mxl score out and writes the result as SVG to stdout.
-//   swift run scorekit-svg <file.musicxml|.mxl> [--width N | --line] [--font path] [--measure N] [--all-parts] [--hide-empty] [--fingering] [--cursor N] > out.svg
+//   swift run scorekit-svg <file.musicxml|.mxl> [--width N | --line] [--font path] [--measure N] [--system N] [--all-parts] [--hide-empty] [--fingering] [--cursor N] > out.svg
 // Shows only the piano part(s) of a score that has one (like the app); --all-parts shows every part.
 // Glyphs are <text font-family="Bravura"> using an @font-face for the app's Bravura.otf.
 // 1 staff space = `scale` user units.
@@ -18,6 +18,7 @@ var path: String?
 var cursorEntry: Int?
 var allParts = false
 var focusMeasure: Int?
+var focusSystem: Int?
 var options = LayoutOptions(width: .fixed(80))
 // Font: --font, else $SCOREKIT_FONT, else no @font-face (the viewer's installed Bravura is used).
 var fontPath: String? = ProcessInfo.processInfo.environment["SCOREKIT_FONT"]
@@ -42,6 +43,10 @@ while !args.isEmpty {
         guard let v = args.first.flatMap(Int.init) else { fail("--measure needs a 1-based measure number") }
         args.removeFirst()
         focusMeasure = v
+    case "--system":
+        guard let v = args.first.flatMap(Int.init) else { fail("--system needs a 0-based system index") }
+        args.removeFirst()
+        focusSystem = v
     case "--all-parts": allParts = true
     case "--hide-empty": options.hideEmptyStaves = true
     case "--fingering": options.showFingering = true
@@ -52,7 +57,7 @@ while !args.isEmpty {
     }
 }
 guard let path else {
-    fail("usage: scorekit-svg <file.musicxml|.mxl> [--width N | --line] [--font path] [--measure N] [--all-parts] [--hide-empty] [--fingering] [--no-numbers] [--cursor N] > out.svg")
+    fail("usage: scorekit-svg <file.musicxml|.mxl> [--width N | --line] [--font path] [--measure N] [--system N] [--all-parts] [--hide-empty] [--fingering] [--no-numbers] [--cursor N] > out.svg")
 }
 
 let score: Score
@@ -95,7 +100,11 @@ let fontFace: String = {
 
 // --measure N: crop the view to the system that holds measure N.
 var view = CGRect(x: 0, y: 0, width: layout.size.width, height: layout.size.height)
-if let fm = focusMeasure {
+if let si = focusSystem {
+    guard layout.systems.indices.contains(si) else { fail("system \(si) does not exist (\(layout.systems.count) systems)") }
+    let f = layout.systems[si].frame
+    view = CGRect(x: 0, y: f.minY - 3, width: layout.size.width, height: f.height + 6)
+} else if let fm = focusMeasure {
     guard let loc = layout.measureLocations[fm - 1] else { fail("measure \(fm) was not laid out") }
     let f = layout.systems[loc.systemIndex].frame
     view = CGRect(x: 0, y: f.minY - 3, width: layout.size.width, height: f.height + 6)

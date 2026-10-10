@@ -29,6 +29,7 @@ struct Engraving {
     let ties: [TieSpec]
     let voltas: [VoltaSpec]
     let slurs: [SlurSpec]
+    let wavyLines: [WavySpec]
 
     init(score: Score, options: LayoutOptions) {
         self.score = score
@@ -54,6 +55,7 @@ struct Engraving {
         ties = Self.pairTies(score, parts: Array(Set(s.map(\.part))).sorted())
         voltas = s.first.map { Self.planVoltas(score, part: $0.part) } ?? []
         slurs = Self.pairSlurs(score, parts: Array(Set(s.map(\.part))).sorted())
+        wavyLines = Self.pairWavy(score, parts: Array(Set(s.map(\.part))).sorted())
     }
 
     // MARK: Run

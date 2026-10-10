@@ -147,6 +147,13 @@ public struct Note: Sendable, Hashable {
     /// Where an octave line (`OctaveShift`) draws this note, in octaves from its sounding pitch
     /// (8va is -1). `pitch` stays the sounding pitch.
     public var displayOctaves = 0
+    /// `<articulations>`, `<fermata>`, `<arpeggiate>`, `<ornaments>` and `<tremolo>` of the note.
+    public var articulations: [ArticulationMark] = []
+    public var fermata: FermataMark?
+    public var arpeggio: ArpeggioMark?
+    public var ornaments: [OrnamentMark] = []
+    public var wavyLines: [WavyMark] = []
+    public var tremolo: TremoloMark?
 
     public var isGrace: Bool { grace != nil }
     public var isRest: Bool { if case .rest = kind { true } else { false } }

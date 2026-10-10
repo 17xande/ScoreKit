@@ -58,7 +58,7 @@ struct MusicXMLParser {
 
     // MARK: Metadata
 
-    private static func nonEmpty(_ s: String?) -> String? { s?.isEmpty == false ? s : nil }
+    static func nonEmpty(_ s: String?) -> String? { s?.isEmpty == false ? s : nil }
 
     private static func creditText(_ root: XNode, type: String) -> String? {
         for c in root.children(named: "credit")
@@ -165,10 +165,7 @@ struct MusicXMLParser {
                 let metro = el.children(named: "direction-type").lazy.compactMap { dt in
                     dt.child(named: "metronome").map(Self.metronome)
                 }.first
-                let words = el.children(named: "direction-type").lazy.compactMap { dt -> String? in
-                    let t = dt.child(named: "words")?.text.trimmingCharacters(in: .whitespacesAndNewlines)
-                    return t.flatMap { $0.isEmpty ? nil : $0 }
-                }.first
+                let words = el.children(named: "direction-type").lazy.map { Self.wordsText($0) }.first { !$0.isEmpty }
                 if text != nil || metro != nil {
                     m.directions.append(TempoDirection(
                         source: .direction, onset: cursor, offset: try offset(el, state),
@@ -298,7 +295,7 @@ struct MusicXMLParser {
     }
 
     /// Jump marks of a `<direction>` (`el`, with its `<sound>`) or of a bare `<sound>`.
-    private static func jumpMarks(in el: XNode, sound: XNode?, onset: Rational) -> [JumpMark] {
+    static func jumpMarks(in el: XNode, sound: XNode?, onset: Rational) -> [JumpMark] {
         var out: [JumpMark] = []
         if let sound {
             let table: [(String, JumpMark.Kind)] = [("dacapo", .dacapo), ("dalsegno", .dalsegno), ("segno", .segno),
@@ -348,6 +345,7 @@ struct MusicXMLParser {
             default: break
             }
         }
+        if let f = el.child(named: "fermata") { b.fermata = FermataMark(inverted: f.trimmedAttribute("type") == "inverted") }
         if let e = el.child(named: "ending") {
             let kind: Ending.Kind? = switch e.trimmedAttribute("type") {
             case "start": .start
@@ -436,6 +434,7 @@ struct MusicXMLParser {
                 n.slurs.append(SlurMark(kind: kind, number: t.trimmedAttribute("number").flatMap { Int($0) } ?? 1,
                                         above: side.flatMap { ["above": true, "over": true, "below": false, "under": false][$0] }))
             }
+            parseEmbellishments(notations, into: &n)
             for t in notations.children(named: "tuplet") {
                 let kind: TupletMark.Kind? = switch t.trimmedAttribute("type") {
                 case "start": .start
