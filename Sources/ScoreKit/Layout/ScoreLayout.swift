@@ -184,6 +184,32 @@ public struct LaidMeasure: Sendable, Hashable {
     /// The right edge of the closing barline.
     public var barX: Double
     public var columns: [LaidColumn]
+    /// The clef, key and time of each staff (`LaidSystem.staves` order) at the start of the measure.
+    public var contexts: [StaffContext] = []
+    /// Clef and key changes inside the measure (and a clef at its end), by x, per staff.
+    public var contextChanges: [LaidContextChange] = []
+}
+
+/// The clef, key and time signature in effect on one staff.
+public struct StaffContext: Sendable, Hashable {
+    public var clef: Clef
+    public var key: Key
+    /// Nil when the score has not stated a time signature yet.
+    public var time: TimeSignature?
+}
+
+/// The staves' contexts from `x` on, until the next step.
+public struct LaidContextStep: Sendable, Hashable {
+    public var x: Double
+    public var contexts: [StaffContext]
+}
+
+/// A clef or key change inside a measure: from `x` on, `staff` (index into `LaidSystem.staves`)
+/// is in `context`.
+public struct LaidContextChange: Sendable, Hashable {
+    public var staff: Int
+    public var x: Double
+    public var context: StaffContext
 }
 
 /// One slur, dynamic, hairpin, octave line or pedal mark of a system, and which of
@@ -206,6 +232,11 @@ public struct LaidSystem: Sendable {
     public var columns: [LaidColumn]
     public var measures: [LaidMeasure]
     var marks: [LaidMark] = []
+    /// The system barline, braces and bracket at the left (the sticky header copies them).
+    public var leftFurniture: [LayoutItem] = []
+    /// Where the clef, key or time of some staff changes along the system, ascending in x: from `x` on,
+    /// the staves are in `contexts` (`ScoreLayout.stickyContext` searches it).
+    public var contextSteps: [LaidContextStep] = []
     public var columnXs: [Double] { columns.map(\.x) }
 }
 

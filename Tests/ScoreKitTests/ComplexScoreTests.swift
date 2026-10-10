@@ -257,8 +257,25 @@ func tieEdgeCases() throws {
     #expect(m51.notes.contains { $0.midi == 76 && $0.tie == .start && near($0.quarters, 0.5 + 1.0 / 3) })
 }
 
-@Test("tempo: OSMD maps the word Largo to 52; ScoreKit keeps its default 100 for words")
-func tempoWordsAreDisplayOnly() throws {
+@Test("tempo: a tempo word with no sound tempo or metronome plays OSMD's table tempo (Largo 52)")
+func tempoWordsSetThePlaybackTempo() throws {
     let t = Timeline(score: try load("complex/lilypond/21d-Chords-SchubertStabatMater.mxl"))
-    #expect(t.entries.allSatisfy { near($0.bpm, TempoMap.defaultBPM) })
+    #expect(t.entries.allSatisfy { near($0.bpm, 52) })
+    #expect(TempoWords.bpm(of: "Allegro") == 130)
+    #expect(TempoWords.bpm(of: "Allegro moderato") == 118)  // the longest phrase wins
+    #expect(TempoWords.bpm(of: "Allegro, ma non troppo") == 130)
+    #expect(TempoWords.bpm(of: "Allegro.") == 130)
+    #expect(TempoWords.bpm(of: "very fast") == 170)
+    #expect(TempoWords.bpm(of: "più Allegro") == nil)
+    #expect(TempoWords.bpm(of: "Con brio") == nil)
 }
+
+@Test("tempo: a word in another part never overrides a sound tempo or metronome of the piano")
+func tempoWordsYieldToMarkedTempos() throws {
+    let sat = Timeline(score: try load("complex/openscore/satie-je-te-veux.mxl"))
+    #expect(near(try #require(sat.entries.first).bpm, 124))
+    let bou = Timeline(score: try load("complex/openscore/boulanger-parfois-je-suis-triste.mxl"))
+    #expect(near(try #require(bou.entries.first).bpm, 66))
+    #expect(Set(bou.entries.filter { $0.measure == 23 }.map(\.bpm)) == [60])
+}
+

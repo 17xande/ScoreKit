@@ -208,7 +208,6 @@ let divergences: [String: (reason: String, mask: Mask)] = [
     "ending-text-differs": ("OSMD reads the ending's text instead of its number, and drops measures when the text has no digit", .perMeasureContent),
     "ending-text-digits-swapped": ("OSMD 2.2.0 lets the text override the number and plays 1 2 1 2 3 4; the intended order is 1 2 1 3 4, which ScoreKit plays from the number attribute", .perMeasureContent),
     "ending-print-object-no": ("OSMD skips endings with print-object=\"no\" entirely; ScoreKit plays them (it only hides the bracket)", .perMeasureContent),
-    "lilypond-21d-Chords-SchubertStabatMater": ("OSMD turns the tempo word \"Largo\" into 52 bpm (its table of tempo words); ScoreKit treats words as display only and plays the default 100", .ignoringBPM),
     "lilypond-45a-SimpleRepeat": ("OSMD ignores repeat times (plays the bar twice); the file says five", .perMeasureContent),
     "lilypond-45c-SimpleRepeat-Nested": ("OSMD ignores repeat times and then repeats the wrong bars (1-3 2-7 4-8); intended 1, 2-3 five times, 4-8", .perMeasureContent),
     "lilypond-45d-Repeats-MultipleEndings": ("OSMD keeps only the first digit of \"3, 5, 7\" and lets the text of ending 4, 6 override its number, so most endings are lost (1-2 1-2 1-2 1 11-12); intended eight passes", .perMeasureContent),
@@ -284,9 +283,6 @@ struct DivergentTimelineTests {
 func printedNumbersMatch(name: String) throws {
     let (score, _, walk) = try loadTimeline(name)
     for w in walk.entries {
-        // Known difference: a non-numeric number attribute ("X1" on an implicit measure) stays raw in
-        // ScoreKit; the web derives a counting number (lilypond-46d measure 3: "X1" vs 2).
-        if Int(score.parts[0].measures[w.measure - 1].number) == nil { continue }
         #expect(score.parts[0].measures[w.measure - 1].number == String(w.printed), "\(name) measure \(w.measure)")
     }
 }

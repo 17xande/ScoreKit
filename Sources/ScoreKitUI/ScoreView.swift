@@ -25,13 +25,17 @@ public struct ScoreViewOptions: Equatable, Sendable {
     /// Where the cursor sits across the viewport in line mode.
     public var cursorAnchor: Double
     public var cursorColor: Color
+    /// Line mode: when set, the current clef, key and time stay pinned at the left edge once the line is
+    /// scrolled, on this background (the sheet's paper colour: the notes scroll under it). Nil: no header.
+    public var stickyBackground: Color?
 
     public init(mode: Mode = .page, zoom: Double = 1, showFingering: Bool = false, staves: [StaffRef]? = nil,
                 ink: Color? = nil, basePointsPerSpace: Double = 8, cursorAnchor: Double = 0.2,
-                cursorColor: Color = Color.accentColor.opacity(0.3)) {
+                cursorColor: Color = Color.accentColor.opacity(0.3), stickyBackground: Color? = nil) {
         self.mode = mode; self.zoom = zoom; self.showFingering = showFingering; self.staves = staves
         self.ink = ink; self.basePointsPerSpace = basePointsPerSpace; self.cursorAnchor = cursorAnchor
         self.cursorColor = cursorColor
+        self.stickyBackground = stickyBackground
     }
 
     var scale: Double { max(0.5, basePointsPerSpace * zoom) }
@@ -257,6 +261,34 @@ private struct LineTiles: View, Equatable {
     }
 }
 
+/// The sticky header of a scrolled line: an opaque background and the clef, key and time of the staves,
+/// drawn by `ScoreCanvas` from the header layout (`ScoreLayout.stickyHeader`). Equatable on the
+/// contexts, so it only redraws when a clef, key or time changes. Not checked on device yet.
+private struct StickyHeaderView: View, Equatable {
+    var prepared: PreparedLayout
+    var contexts: [StaffContext]
+    var scale: Double
+    var region: CGRect
+    var ink: Color
+    var background: Color
+
+    nonisolated static func == (a: StickyHeaderView, b: StickyHeaderView) -> Bool {
+        a.prepared === b.prepared && a.contexts == b.contexts && a.scale == b.scale && a.region == b.region
+            && a.ink == b.ink && a.background == b.background
+    }
+
+    var body: some View {
+        if let h = prepared.layout.stickyHeader(for: contexts) {
+            ScoreCanvas(layout: PreparedLayout(layout: h.layout), systemIndex: 0, scale: scale, ink: ink,
+                        region: CGRect(x: 0, y: region.minY, width: h.width, height: region.height))
+                .background(background)
+                // Taps on the header do nothing: they must not seek to the notes under it.
+                .contentShape(Rectangle())
+                .onTapGesture {}
+        }
+    }
+}
+
 private struct LineContent: View {
     var prepared: PreparedLayout
     var options: ScoreViewOptions
@@ -280,7 +312,10 @@ private struct LineContent: View {
 
     private func follow(_ spot: CursorSpot?) -> Double {
         guard let spot else { return 0 }
-        return prepared.layout.scrollOffset(for: spot, viewportWidth: viewport.width / scale, anchor: options.cursorAnchor) * scale
+        // With the sticky header the cursor sits right of it (its widest form plus 2 staff spaces).
+        var anchor = options.cursorAnchor
+        if options.stickyBackground != nil { anchor = max(anchor, (prepared.stickyHeaderWidth + 2) * scale / viewport.width) }
+        return prepared.layout.scrollOffset(for: spot, viewportWidth: viewport.width / scale, anchor: min(anchor, 0.6)) * scale
     }
 
     private func clamped(_ o: Double) -> Double { min(max(0, o), maxOffset) }
@@ -309,6 +344,15 @@ private struct LineContent: View {
                 CursorOverlay(spot: spot, scale: scale, color: options.cursorColor, origin: CGPoint(x: 0, y: region.minY))
             }
             .frame(width: contentWidth, height: height, alignment: .topLeading)
+            .overlay(alignment: .topLeading) {
+                // Pinned to the viewport's left edge: the content is offset by -off, so this is shifted back by +off.
+                if let bg = options.stickyBackground, let ctx = prepared.layout.stickyHeaderContexts(atX: off / scale) {
+                    StickyHeaderView(prepared: prepared, contexts: ctx, scale: scale, region: region,
+                                     ink: options.ink ?? .primary, background: bg)
+                        .equatable()
+                        .offset(x: off)
+                }
+            }
             .contentShape(Rectangle())
             .gesture(SpatialTapGesture().onEnded { v in
                 manualOffset = nil

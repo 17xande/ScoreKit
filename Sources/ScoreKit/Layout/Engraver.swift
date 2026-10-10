@@ -179,7 +179,7 @@ struct Engraving {
 
     /// Key signature glyphs at `x` (staff-local y) and the width they take. `from` is the
     /// previous key when it must be cancelled with naturals first.
-    func keySignature(_ key: Key, clef: Clef, from old: Key?, x: Double) -> (items: [LayoutItem], width: Double) {
+    static func keySignature(_ key: Key, clef: Clef, from old: Key?, x: Double) -> (items: [LayoutItem], width: Double) {
         var items: [LayoutItem] = []
         var cursor = x
         func put(_ g: Glyph, _ p: Int) {
@@ -216,7 +216,7 @@ struct Engraving {
         return (items, max(0, cursor - x - (items.isEmpty ? 0 : 0.12)))
     }
 
-    func timeSignatureWidth(_ t: TimeSignature) -> Double {
+    static func timeSignatureWidth(_ t: TimeSignature) -> Double {
         switch t.symbol {
         case .common: return Glyph.timeSigCommon.metrics.advance
         case .cut: return Glyph.timeSigCutCommon.metrics.advance
@@ -224,11 +224,11 @@ struct Engraving {
         }
     }
 
-    private func digitsWidth(_ n: Int) -> Double {
+    private static func digitsWidth(_ n: Int) -> Double {
         String(n).compactMap { $0.wholeNumberValue }.reduce(0) { $0 + Glyph.timeDigit($1).metrics.advance }
     }
 
-    func timeSignature(_ t: TimeSignature, x: Double) -> [LayoutItem] {
+    static func timeSignature(_ t: TimeSignature, x: Double) -> [LayoutItem] {
         switch t.symbol {
         case .common: return [.glyph(codepoint: Glyph.timeSigCommon.codepoint, position: CGPoint(x: x, y: 2))]
         case .cut: return [.glyph(codepoint: Glyph.timeSigCutCommon.codepoint, position: CGPoint(x: x, y: 2))]
@@ -246,10 +246,17 @@ struct Engraving {
         }
     }
 
-    func clefItem(_ clef: Clef, x: Double, scale: Double = 1) -> LayoutItem {
+    static func clefItem(_ clef: Clef, x: Double, scale: Double = 1) -> LayoutItem {
         let s = ClefShape(clef)
         // Scaling about the origin keeps the clef on its line.
         return .glyph(codepoint: s.glyph.codepoint, position: CGPoint(x: x, y: s.originY),
                       size: scale == 1 ? nil : Glyph.standardSize * scale)
     }
+
+    func keySignature(_ key: Key, clef: Clef, from old: Key?, x: Double) -> (items: [LayoutItem], width: Double) {
+        Self.keySignature(key, clef: clef, from: old, x: x)
+    }
+    func timeSignatureWidth(_ t: TimeSignature) -> Double { Self.timeSignatureWidth(t) }
+    func timeSignature(_ t: TimeSignature, x: Double) -> [LayoutItem] { Self.timeSignature(t, x: x) }
+    func clefItem(_ clef: Clef, x: Double, scale: Double = 1) -> LayoutItem { Self.clefItem(clef, x: x, scale: scale) }
 }

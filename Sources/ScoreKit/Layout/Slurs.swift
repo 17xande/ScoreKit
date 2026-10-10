@@ -194,7 +194,8 @@ extension Engraving {
     /// Fits a slur between `p`'s ends (its `above`, and `lift1`/`lift2` raising the ends away from the
     /// heads) over obstacles given as sample points. The curve is measured across the chord: the
     /// offsets of its controls at 1/3 and 2/3 grow until its inner edge clears every point.
-    private func fitSlur(_ p: SlurPiece, lift1: Double, lift2: Double, points: [CGPoint], band: Double?) -> (fit: SlurFit, y1: Double, y2: Double) {
+    private func fitSlur(_ p: SlurPiece, lift1: Double, lift2: Double, points: [CGPoint], band: Double?,
+                         cross: Bool = false) -> (fit: SlurFit, y1: Double, y2: Double) {
         let y1 = p.y1 + (p.above ? -lift1 : lift1), y2 = p.y2 + (p.above ? -lift2 : lift2)
         let dx = p.x2 - p.x1, dy = y2 - y1
         let len = hypot(dx, dy)
@@ -209,7 +210,12 @@ extension Engraving {
             local.append((X / len, (p.above ? -Y : Y) + 0.25))
         }
         // A slur rises with its length: 0.45 sp plus 0.085 per sp, at most 3.2 sp (apex = 3/4 of a control offset).
-        var c1 = min(0.45 + 0.085 * len, 3.2) / 0.75, c2 = c1
+        // A steep chord (a cross-staff slur, a short grace slur) bulges sideways, not up: its rise follows its
+        // horizontal reach, capped low, and the clearing below may grow it only so far (a hook, not a bracket).
+        let steep = abs(dy) > dx
+        let rise = steep ? min(0.45 + 0.085 * max(dx, 3), cross ? 1.4 : 1.8) : min(0.45 + 0.085 * len, 3.2)
+        let cMax = steep ? (cross ? 5.0 : 5.5) : 8.0
+        var c1 = rise / 0.75, c2 = c1
         func deficit(_ pt: (u: Double, need: Double)) -> Double {
             let u = pt.u
             let edge = 3 * c1 * u * (1 - u) * (1 - u) + 3 * c2 * u * u * (1 - u) - (0.1 + 0.12 * 4 * u * (1 - u))
@@ -220,8 +226,8 @@ extension Engraving {
             let d = deficit(w), u = w.u
             let w1 = 3 * u * (1 - u) * (1 - u), w2 = 3 * u * u * (1 - u)
             let den = w1 * w1 + w2 * w2
-            c1 = min(8, c1 + d * w1 / den)
-            c2 = min(8, c2 + d * w2 / den)
+            c1 = min(cMax, c1 + d * w1 / den)
+            c2 = min(cMax, c2 + d * w2 / den)
         }
         let worst = local.max(by: { deficit($0) < deficit($1) })
         return (SlurFit(c1: c1, c2: c2, residual: max(0, worst.map(deficit) ?? 0), worstU: worst?.u ?? 0.5), y1, y2)
@@ -262,10 +268,12 @@ extension Engraving {
         // The ends rise off the heads (as Gould has it) when the curve alone cannot clear a note near one.
         func best(_ q: SlurPiece) -> (SlurPiece, SlurFit, Double, Double) {
             var l1 = 0.0, l2 = 0.0
-            var r = fitSlur(q, lift1: 0, lift2: 0, points: points, band: band)
-            for _ in 0..<12 where r.fit.residual > 0.05 {
-                if r.fit.worstU < 0.5 { l1 += 0.35 } else { l2 += 0.35 }
-                r = fitSlur(q, lift1: l1, lift2: l2, points: points, band: band)
+            var r = fitSlur(q, lift1: 0, lift2: 0, points: points, band: band, cross: cross)
+            // A steep slur's ends stay on their notes (at most 1 sp off); it bulges instead.
+            let maxLift = cross || abs(q.y2 - q.y1) > abs(q.x2 - q.x1) ? 1.0 : 4.2
+            for _ in 0..<12 where r.fit.residual > 0.05 && (l1 < maxLift || l2 < maxLift) {
+                if r.fit.worstU < 0.5 { l1 = min(maxLift, l1 + 0.35) } else { l2 = min(maxLift, l2 + 0.35) }
+                r = fitSlur(q, lift1: l1, lift2: l2, points: points, band: band, cross: cross)
             }
             return (q, r.fit, r.y1, r.y2)
         }

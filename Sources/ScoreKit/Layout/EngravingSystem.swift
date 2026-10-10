@@ -151,8 +151,28 @@ extension Engraving {
             }
             laidColumns += measureColumns
             let endX = (xs.last ?? bodyStart) + gap(md.columns.count) + md.endFixed
-            laidMeasures.append(LaidMeasure(index: mi, duration: md.duration, x0: x0, bodyStart: bodyStart,
-                                            barX: endX, columns: measureColumns))
+            var laid = LaidMeasure(index: mi, duration: md.duration, x0: x0, bodyStart: bodyStart,
+                                   barX: endX, columns: measureColumns)
+            // What each staff is in at the measure's start, and where a clef or key changes inside it
+            // (for `ScoreLayout.stickyContext`).
+            for (si, sm) in md.slots.enumerated() {
+                var cur = StaffContext(clef: sm.clef, key: sm.key, time: sm.time)
+                laid.contexts.append(cur)
+                var events: [(onset: Rational, clef: Clef?, key: Key?)] =
+                    sm.midClefs.map { ($0.onset, $0.clef, nil) } + sm.midKeys.map { ($0.onset, nil, $0.key) }
+                events.sort { $0.onset < $1.onset }
+                for e in events {
+                    guard let i = md.columns.firstIndex(where: { $0.onset == e.onset }) else { continue }
+                    if let c = e.clef { cur.clef = c }
+                    if let k = e.key { cur.key = k }
+                    laid.contextChanges.append(LaidContextChange(staff: si, x: xs[i] - md.columns[i].leftW, context: cur))
+                }
+                if let c = sm.endClef {
+                    cur.clef = c
+                    laid.contextChanges.append(LaidContextChange(staff: si, x: endX - md.endFixed, context: cur))
+                }
+            }
+            laidMeasures.append(laid)
             let barW = md.endFixed - md.endClefW
             let columnIndex = Dictionary(uniqueKeysWithValues: md.columns.enumerated().map { ($1.onset, $0) })
             let nextHasRepeat = k + 1 < range.count && measures[mi + 1].leftRepeat
@@ -314,6 +334,7 @@ extension Engraving {
         }
         for b in bars { items += barline(b.kind, rightEdge: b.x, span: partSpan(b.part)) }
         for r in repeatStarts { items += repeatStart(at: r.x, shared: r.shared, span: partSpan(r.part)) }
+        let furnitureStart = items.count
         // System barline.
         if let f = tops.first, let l = tops.last {
             items.append(.line(from: CGPoint(x: staffLeft + 0.08, y: f), to: CGPoint(x: staffLeft + 0.08, y: l + 4),
@@ -334,6 +355,16 @@ extension Engraving {
             items.append(.glyph(codepoint: Glyph.bracketTop.codepoint, position: CGPoint(x: bx, y: f)))
             items.append(.glyph(codepoint: Glyph.bracketBottom.codepoint, position: CGPoint(x: bx, y: l + 4)))
         }
+        let leftFurniture = Array(items[furnitureStart...])
+        var steps: [LaidContextStep] = []
+        for m in laidMeasures {
+            var cur = m.contexts
+            if steps.last?.contexts != cur { steps.append(LaidContextStep(x: m.x0, contexts: cur)) }
+            for c in m.contextChanges.sorted(by: { $0.x < $1.x }) where cur.indices.contains(c.staff) {
+                cur[c.staff] = c.context
+                steps.append(LaidContextStep(x: c.x, contexts: cur))
+            }
+        }
         // A measure wider than the page overflows; the frame reports what was really used, and
         // it covers every item's ink.
         var ink = CGRect.null
@@ -349,7 +380,8 @@ extension Engraving {
         let frame = CGRect(x: 0, y: frameTop, width: width, height: frameBottom - frameTop)
         let staves = slots.enumerated().map { LaidStaff(partIndex: $1.part, staffInPart: $1.staff, top: tops[$0]) }
         let system = LaidSystem(frame: frame, staves: staves, measureRange: range, items: items,
-                                columns: laidColumns, measures: laidMeasures, marks: laidMarks)
+                                columns: laidColumns, measures: laidMeasures, marks: laidMarks,
+                                leftFurniture: leftFurniture, contextSteps: steps)
         return SystemResult(system: system, notes: notes, groups: groups, beams: beamMap, sharedHeads: sharedMap,
                             noteTimes: noteTimes)
     }

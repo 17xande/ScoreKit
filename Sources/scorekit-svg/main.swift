@@ -2,7 +2,7 @@ import Foundation
 import ScoreKit
 
 // Debug tool: lays a MusicXML/.mxl score out and writes the result as SVG to stdout.
-//   swift run scorekit-svg <file.musicxml|.mxl> [--width N | --line] [--font path] [--measure N] [--system N] [--all-parts] [--hide-empty] [--fingering] [--cursor N] > out.svg
+//   swift run scorekit-svg <file.musicxml|.mxl> [--width N | --line] [--font path] [--measure N] [--system N] [--all-parts] [--hide-empty] [--fingering] [--cursor N] [--sticky X] > out.svg
 // Shows only the piano part(s) of a score that has one (like the app); --all-parts shows every part.
 // Glyphs are <text font-family="Bravura"> using an @font-face for the app's Bravura.otf.
 // 1 staff space = `scale` user units.
@@ -19,6 +19,7 @@ var cursorEntry: Int?
 var allParts = false
 var focusMeasure: Int?
 var focusSystem: Int?
+var stickyX: Double?
 var options = LayoutOptions(width: .fixed(80))
 // Font: --font, else $SCOREKIT_FONT, else no @font-face (the viewer's installed Bravura is used).
 var fontPath: String? = ProcessInfo.processInfo.environment["SCOREKIT_FONT"]
@@ -47,6 +48,10 @@ while !args.isEmpty {
         guard let v = args.first.flatMap(Int.init) else { fail("--system needs a 0-based system index") }
         args.removeFirst()
         focusSystem = v
+    case "--sticky":
+        guard let v = args.first.flatMap(Double.init) else { fail("--sticky needs an x offset (staff spaces)") }
+        args.removeFirst()
+        stickyX = v
     case "--all-parts": allParts = true
     case "--hide-empty": options.hideEmptyStaves = true
     case "--fingering": options.showFingering = true
@@ -57,7 +62,7 @@ while !args.isEmpty {
     }
 }
 guard let path else {
-    fail("usage: scorekit-svg <file.musicxml|.mxl> [--width N | --line] [--font path] [--measure N] [--system N] [--all-parts] [--hide-empty] [--fingering] [--no-numbers] [--cursor N] > out.svg")
+    fail("usage: scorekit-svg <file.musicxml|.mxl> [--width N | --line] [--font path] [--measure N] [--system N] [--all-parts] [--hide-empty] [--fingering] [--no-numbers] [--cursor N] [--sticky X] > out.svg")
 }
 
 let score: Score
@@ -120,9 +125,9 @@ text.t { font-family: serif; }
 <rect width="100%" height="100%" fill="white"/>
 
 """
-for (i, sys) in layout.systems.enumerated() {
-    out += "<g id=\"system\(i)\">\n"
-    for item in sys.items {
+func emit(_ items: [LayoutItem]) -> String {
+    var out = ""
+    for item in items {
         switch item {
         case .glyph(let cp, let p, let size, let id, let gid):
             let fs = size.map { " style=\"font-size:\(n($0))px\"" } ?? ""
@@ -140,6 +145,18 @@ for (i, sys) in layout.systems.enumerated() {
             out += "<path d=\"\(pathData(els))\" fill=\"\(fill ? "black" : "none")\"\(stroke.map { " stroke=\"black\" stroke-width=\"\(n($0))\"" } ?? "")\(attr(id, gid))/>\n"
         }
     }
+    return out
+}
+for (i, sys) in layout.systems.enumerated() {
+    out += "<g id=\"system\(i)\">\n"
+    out += emit(sys.items)
+    out += "</g>\n"
+}
+// --sticky X: the sticky header (clef, key, time) as it would sit at the left edge of a line scrolled to X.
+if let x = stickyX, let h = layout.stickyHeader(atX: x) {
+    let f = h.layout.systems[0].frame
+    out += "<g id=\"sticky\" transform=\"translate(\(n(x)) 0)\">\n<rect x=\"0\" y=\"\(n(f.minY))\" width=\"\(n(h.width))\" height=\"\(n(f.height))\" fill=\"white\" stroke=\"#3b82f6\" stroke-width=\"0.1\"/>\n"
+    out += emit(h.layout.systems[0].items)
     out += "</g>\n"
 }
 // Debug aid: notehead boxes, only with SCOREKIT_BOXES=1.

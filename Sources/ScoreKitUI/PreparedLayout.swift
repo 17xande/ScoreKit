@@ -56,6 +56,9 @@ public final class PreparedLayout: Sendable {
         }
     }
 
+    /// The widest sticky header of the line, in staff spaces.
+    public var stickyHeaderWidth: Double { layout.maxStickyHeaderWidth() }
+
     public var size: CGSize { layout.size }
 
     // MARK: Regions

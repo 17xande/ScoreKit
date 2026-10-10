@@ -203,6 +203,12 @@ public struct TempoDirection: Sendable, Hashable {
     public var quarterBPM: Double? { soundTempo ?? metronome?.quarterBPM }
 }
 
+/// A tempo word on its own, e.g. "Largo", and the tempo OSMD gives it.
+public struct TempoWord: Sendable, Hashable {
+    public var onset: Rational
+    public var bpm: Double
+}
+
 /// A navigation mark: `<sound dacapo|dalsegno|segno|coda|tocoda|fine>` or a
 /// `<segno/>` / `<coda/>` direction type. Words such as "D.C. al Fine" are not
 /// interpreted; only the playback attributes are.
@@ -259,7 +265,7 @@ public struct Barline: Sendable, Hashable {
 public struct Measure: Sendable, Equatable {
     /// 0-based, in document order.
     public var index: Int
-    /// The printed number (may be "0" for a pickup, or non-numeric).
+    /// The printed number (may be "0" for a pickup, or non-numeric; an implicit non-numeric label takes the previous measure's number).
     public var number: String
     public var implicit: Bool
     /// Length in quarters: the furthest the time cursor reached, else the time signature's.
@@ -274,6 +280,9 @@ public struct Measure: Sendable, Equatable {
     public var clefChanges: [ClefChange] = []
     public var barlines: [Barline] = []
     public var directions: [TempoDirection] = []
+    /// Tempo words ("Largo") in a direction with no `<sound tempo>` or metronome, with the BPM OSMD
+    /// plays for them (`TempoWords`). Display is unchanged: these are drawn as plain words.
+    public var tempoWords: [TempoWord] = []
     /// D.C./D.S./segno/coda/to coda/fine marks, in document order.
     public var jumpMarks: [JumpMark] = []
     public var notes: [Note] = []

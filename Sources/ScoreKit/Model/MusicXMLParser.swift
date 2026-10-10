@@ -87,7 +87,13 @@ struct MusicXMLParser {
         var state = PartState()
         var measures: [Measure] = []
         for (i, m) in node.children(named: "measure").enumerated() {
-            measures.append(try parseMeasure(m, index: i, state: &state))
+            var measure = try parseMeasure(m, index: i, state: &state)
+            // An implicit measure with a non-numeric label ("X1") continues the previous measure's number
+            // (0, 1, 1, 2), as the web does. Pickups ("0") and numeric labels stay.
+            if measure.implicit, Int(measure.number) == nil, let prev = measures.last.flatMap({ Int($0.number) }) {
+                measure.number = String(prev)
+            }
+            measures.append(measure)
         }
         let usedStaff = measures.flatMap(\.notes).map(\.staff).max() ?? 1
         let info = names[id]
@@ -174,6 +180,8 @@ struct MusicXMLParser {
                         placement: el.trimmedAttribute("placement"), staff: el.child(named: "staff")?.int,
                         soundTempo: text.flatMap(Double.init).flatMap { $0 > 0 ? $0 : nil },
                         soundTempoText: text, metronome: metro, words: words))
+                } else if let words, let bpm = TempoWords.bpm(of: words) {
+                    m.tempoWords.append(TempoWord(onset: cursor, bpm: bpm))
                 }
             case "sound":
                 m.jumpMarks += Self.jumpMarks(in: el, sound: el, onset: cursor)
